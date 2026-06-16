@@ -58,6 +58,18 @@ def cmd_rulesets(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_models(_: argparse.Namespace) -> int:
+    from sandcastlegm.gm.models import RECOMMENDED_OPENROUTER_MODELS
+
+    print("Recommended OpenRouter models (best-fit-first for this agentic GM):\n")
+    for m in RECOMMENDED_OPENROUTER_MODELS:
+        print(f"  {m.key:<18} {m.id}")
+        print(f"  {'':<18} score {m.score}  — {m.note}\n")
+    print("Use with: sandcastlegm play --model <key|full-model-id>")
+    print("or set SANDCASTLEGM_MODEL in your environment.")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -79,7 +91,7 @@ def cmd_play(args: argparse.Namespace) -> int:
     state = GameState(ruleset_id=args.ruleset, title=args.title)
     log = EventLog()
     log.subscribe(_print_event)
-    gm = AIGameMaster(ruleset, state, log)
+    gm = AIGameMaster(ruleset, state, log, model=getattr(args, "model", None))
 
     # Quick character creation.
     name = input("Your character's name [Hero]: ").strip() or "Hero"
@@ -188,10 +200,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("rulesets", help="list installed rulesets").set_defaults(func=cmd_rulesets)
+    sub.add_parser("models", help="list recommended OpenRouter models").set_defaults(func=cmd_models)
 
     play = sub.add_parser("play", help="play a local session")
     play.add_argument("--ruleset", default="sandcastle")
     play.add_argument("--title", default="A Sandcastle Adventure")
+    play.add_argument("--model", default=None, help="OpenRouter model id or preset key (see `models`)")
     play.set_defaults(func=cmd_play)
 
     serve = sub.add_parser("serve", help="run the multiplayer server")

@@ -122,3 +122,24 @@ def test_provider_selection_none_without_keys(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert make_default_provider() is None
+
+
+def test_model_presets_resolve():
+    from sandcastlegm.gm.models import (
+        DEFAULT_OPENROUTER_MODEL,
+        RECOMMENDED_OPENROUTER_MODELS,
+        resolve_model,
+    )
+
+    assert resolve_model("gemma3-27b") == "google/gemma-3-27b-it"
+    assert DEFAULT_OPENROUTER_MODEL == "google/gemma-3-27b-it"
+    # A full id passes through unchanged; unknown strings too.
+    assert resolve_model("mistralai/mistral-medium-3.1") == "mistralai/mistral-medium-3.1"
+    assert resolve_model(None) is None
+    assert RECOMMENDED_OPENROUTER_MODELS[0].key == "gemma3-27b"
+
+
+def test_openrouter_resolves_preset_key():
+    fake = _FakeOpenAI()
+    provider = OpenRouterProvider(model="mistral-medium", client=fake)
+    assert provider.model == "mistralai/mistral-medium-3.1"

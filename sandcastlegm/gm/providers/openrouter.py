@@ -16,6 +16,7 @@ import json
 import os
 from typing import Any
 
+from sandcastlegm.gm.models import DEFAULT_OPENROUTER_MODEL, resolve_model
 from sandcastlegm.gm.providers.base import (
     LLMProvider,
     LLMResponse,
@@ -24,7 +25,7 @@ from sandcastlegm.gm.providers.base import (
 )
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "google/gemma-3-27b-it"
+DEFAULT_MODEL = DEFAULT_OPENROUTER_MODEL
 
 
 class OpenRouterProvider(LLMProvider):
@@ -41,7 +42,9 @@ class OpenRouterProvider(LLMProvider):
         extra_headers: dict[str, str] | None = None,
         client: Any | None = None,
     ) -> None:
-        self.model = model or os.environ.get("SANDCASTLEGM_MODEL") or DEFAULT_MODEL
+        self.model = resolve_model(
+            model or os.environ.get("SANDCASTLEGM_MODEL") or DEFAULT_MODEL
+        )
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._messages: list[dict[str, Any]] = []

@@ -90,8 +90,28 @@ default model.
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-export SANDCASTLEGM_MODEL=google/gemma-3-27b-it   # any OpenRouter model id
+export SANDCASTLEGM_MODEL=gemma3-27b   # preset key or any OpenRouter model id
 ```
+
+Run `sandcastlegm models` for the recommended list. Picks are grounded in a
+community narrative-quality probe (37 open-weight models, 12 GM scenarios, a
+5-judge ensemble scoring atmosphere / NPC craft / GM craft, plus rule-based
+tool/structure compliance). Because this GM is *agentic* — it chains real tool
+calls for dice, HP and initiative — tool-call compliance is weighted alongside
+prose:
+
+| Preset | Model | Why |
+|---|---|---|
+| `gemma3-27b` *(default)* | `google/gemma-3-27b-it` | The only model strong on **both** tool compliance and narration; locally hostable (~24GB). A 27B that matched models 15× its size. |
+| `mistral-medium` | `mistralai/mistral-medium-3.1` | Highest overall narration with the most judge agreement. |
+| `qwen3-next-80b` | `qwen/qwen3-next-80b-a3b-instruct` | Best raw prose, looser tool discipline. |
+| `mistral-small` | `mistralai/mistral-small-3.2-24b-instruct` | Safest floor — zero structural failures in the sweep. |
+| `ministral-8b` | `mistralai/ministral-8b-2512` | Budget pick, strong for 8B (directional). |
+
+Findings that shaped the architecture: *the model narrates, it doesn't
+calculate* (dice/HP/initiative are tools and state, never model arithmetic), and
+small models drift after several chained tool calls — so the standing prompt is
+kept lean (rulebook opt-in, compact state snapshot per turn).
 
 **Anthropic (Claude)**:
 
