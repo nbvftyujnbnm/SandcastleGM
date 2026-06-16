@@ -62,7 +62,8 @@ Three requirements shaped the architecture:
 | `sandcastlegm.gm` | The AI Game Master: vendor-neutral tool-use loop, tool surface, prompt assembly, and LLM providers (OpenRouter / Anthropic) | core, rulesets, `openai`* |
 | `sandcastlegm.vtt` | Exporters to Udonarium (XML/zip) and Cocofolia (clipboard JSON) | core |
 | `sandcastlegm.server` | Multiplayer WebSocket session server | gm, `fastapi`* |
-| `sandcastlegm.cli` | Local terminal play, `serve`, and `rulesets` commands | all of the above |
+| `sandcastlegm.probe` | Narrative-quality probe: score models as Sandcastle GMs | core, `openai`* |
+| `sandcastlegm.cli` | Local terminal play, `serve`, `rulesets`, `models`, `probe` | all of the above |
 
 \* optional extras — `core` and `rulesets` have **zero** third-party
 dependencies, so the dice/rules/state engine runs anywhere.
@@ -112,6 +113,26 @@ Findings that shaped the architecture: *the model narrates, it doesn't
 calculate* (dice/HP/initiative are tools and state, never model arithmetic), and
 small models drift after several chained tool calls — so the standing prompt is
 kept lean (rulebook opt-in, compact state snapshot per turn).
+
+### Evaluate models for your own table
+
+The model that's best for your hardware and taste is something you can measure,
+not guess. `sandcastlegm probe` sends a model a fixed set of Sandcastle GM
+scenarios (scene entry, NPC introduction, fail-forward, a closing hook, …) and
+scores the prose two ways: fast rule-based auto-checks (length, sensory density,
+NPC dialogue, a forward hook, and a penalty for leaking dice math into prose →
+PASS/WARN/FAIL) and an LLM judge (atmosphere / NPC craft / GM craft, 1–5).
+
+```bash
+sandcastlegm probe --model gemma3-27b
+sandcastlegm probe --models gemma3-27b,mistral-medium,mistral-small --judge openai/gpt-oss-20b
+sandcastlegm probe --model qwen3-next-80b --no-judge        # auto-scoring only
+```
+
+Per-model result JSON (including every raw response) is written to
+`probe_results/`, and a ranked summary prints at the end. Needs
+`OPENROUTER_API_KEY` and the `gm` extra. (Judge tip: reasoning judge models burn
+their budget on hidden thinking — the default judge cap is 300 tokens.)
 
 **Anthropic (Claude)**:
 

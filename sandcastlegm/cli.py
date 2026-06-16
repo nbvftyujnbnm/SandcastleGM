@@ -12,6 +12,9 @@ slash commands below.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import pathlib
 import random
 import sys
 
@@ -67,6 +70,49 @@ def cmd_models(_: argparse.Namespace) -> int:
         print(f"  {'':<18} score {m.score}  — {m.note}\n")
     print("Use with: sandcastlegm play --model <key|full-model-id>")
     print("or set SANDCASTLEGM_MODEL in your environment.")
+    return 0
+
+
+def cmd_probe(args: argparse.Namespace) -> int:
+    try:
+        import openai  # noqa: F401
+    except ImportError:
+        print("The probe needs the OpenRouter backend: pip install 'sandcastlegm[gm]'", file=sys.stderr)
+        return 1
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        print("Set OPENROUTER_API_KEY to run the probe.", file=sys.stderr)
+        return 1
+
+    from sandcastlegm.gm.models import resolve_model
+    from sandcastlegm.probe import ProbeRunner, build_openrouter_chat, summarize
+
+    models = [m.strip() for m in (args.models.split(",") if args.models else [args.model]) if m.strip()]
+    out_dir = pathlib.Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    judge_chat = None
+    if not args.no_judge:
+        judge_chat = build_openrouter_chat(
+            resolve_model(args.judge), temperature=0.0, max_tokens=args.judge_max_tokens
+        )
+
+    reports = []
+    for m in models:
+        full = resolve_model(m)
+        print(f"Running probe: {full} ...")
+        try:
+            report = ProbeRunner(build_openrouter_chat(full), judge_chat).run(model=full)
+        except Exception as exc:  # noqa: BLE001 - report and continue to next model
+            print(f"  failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            continue
+        reports.append(report)
+        (out_dir / f"{full.replace('/', '_')}.json").write_text(
+            json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    if reports:
+        print("\n" + summarize(reports))
+        print(f"\nFull results written to {out_dir}/")
     return 0
 
 
@@ -207,6 +253,15 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--title", default="A Sandcastle Adventure")
     play.add_argument("--model", default=None, help="OpenRouter model id or preset key (see `models`)")
     play.set_defaults(func=cmd_play)
+
+    probe = sub.add_parser("probe", help="score models as GMs (needs OPENROUTER_API_KEY)")
+    probe.add_argument("--model", default="gemma3-27b", help="model preset key or id to probe")
+    probe.add_argument("--models", default=None, help="comma-separated models to compare")
+    probe.add_argument("--judge", default="openai/gpt-oss-20b", help="judge model id")
+    probe.add_argument("--judge-max-tokens", type=int, default=300, dest="judge_max_tokens")
+    probe.add_argument("--no-judge", action="store_true", help="auto-scoring only, no LLM judge")
+    probe.add_argument("--out", default="probe_results", help="output directory for result JSON")
+    probe.set_defaults(func=cmd_probe)
 
     serve = sub.add_parser("serve", help="run the multiplayer server")
     serve.add_argument("--host", default="127.0.0.1")
