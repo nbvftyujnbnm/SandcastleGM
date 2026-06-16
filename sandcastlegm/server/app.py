@@ -1,0 +1,184 @@
+"""Multiplayer session server.
+
+A thin real-time layer over the engine: each *room* owns one
+:class:`~sandcastlegm.core.state.GameState`, its :class:`EventLog`, and an
+:class:`~sandcastlegm.gm.engine.AIGameMaster`. Players connect over a WebSocket,
+send actions, and receive every logged event live — so multiple players share
+one AI-run table. The same room can also be exported to a virtual tabletop.
+
+``SessionManager`` and ``Room`` have no web-framework dependency and are unit
+testable on their own; :func:`create_app` builds the FastAPI app and imports
+FastAPI lazily, so the rest of the package imports fine without the server extra.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import random
+from dataclasses import dataclass, field
+from typing import Any
+
+from sandcastlegm.core.events import Event, EventLog
+from sandcastlegm.core.state import GameState
+from sandcastlegm.gm.engine import AIGameMaster
+from sandcastlegm.rulesets import registry
+
+
+@dataclass
+class Room:
+    """One running game: state, log, GM, and connected player queues."""
+
+    id: str
+    gm: AIGameMaster
+    subscribers: list[Any] = field(default_factory=list)  # asyncio.Queue per client
+
+    @property
+    def state(self) -> GameState:
+        return self.gm.state
+
+    @property
+    def log(self) -> EventLog:
+        return self.gm.log
+
+    def subscribe(self) -> "asyncio.Queue[dict[str, Any]]":
+        queue: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
+        self.subscribers.append(queue)
+        return queue
+
+    def unsubscribe(self, queue: "asyncio.Queue[dict[str, Any]]") -> None:
+        if queue in self.subscribers:
+            self.subscribers.remove(queue)
+
+    def broadcast(self, event: Event) -> None:
+        payload = {"kind": "event", "event": event.to_dict()}
+        for queue in list(self.subscribers):
+            queue.put_nowait(payload)
+
+
+class SessionManager:
+    """Owns all live rooms."""
+
+    def __init__(self) -> None:
+        self._rooms: dict[str, Room] = {}
+
+    def create(self, ruleset_id: str, title: str = "Untitled Session") -> Room:
+        ruleset = registry.create(ruleset_id, rng=random.Random())
+        state = GameState(ruleset_id=ruleset_id, title=title)
+        log = EventLog()
+        gm = AIGameMaster(ruleset, state, log)
+        room = Room(id=state.id, gm=gm)
+        # Wire the log to the room's broadcaster so every event reaches players.
+        log.subscribe(room.broadcast)
+        self._rooms[room.id] = room
+        return room
+
+    def get(self, room_id: str) -> Room:
+        if room_id not in self._rooms:
+            raise KeyError(room_id)
+        return self._rooms[room_id]
+
+    def list(self) -> list[dict[str, Any]]:
+        return [
+            {"id": r.id, "title": r.state.title, "ruleset": r.state.ruleset_id,
+             "players": len(r.state.player_characters())}
+            for r in self._rooms.values()
+        ]
+
+
+def create_app(manager: SessionManager | None = None) -> Any:
+    """Build the FastAPI app. Requires the ``server`` extra (fastapi, uvicorn)."""
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi.responses import JSONResponse, Response
+    from starlette.concurrency import run_in_threadpool
+
+    from sandcastlegm.vtt import get_adapter
+
+    mgr = manager or SessionManager()
+    app = FastAPI(title="SandcastleGM", version="0.1.0")
+
+    @app.get("/rulesets")
+    def rulesets() -> dict[str, str]:
+        return registry.available()
+
+    @app.get("/sessions")
+    def list_sessions() -> list[dict[str, Any]]:
+        return mgr.list()
+
+    @app.post("/sessions")
+    def create_session(body: dict[str, Any]) -> dict[str, str]:
+        room = mgr.create(body.get("ruleset_id", "sandcastle"), body.get("title", "Untitled Session"))
+        return {"id": room.id, "ai_gm": "on" if room.gm.available else "referee-only"}
+
+    @app.get("/sessions/{room_id}")
+    def get_session(room_id: str) -> Any:
+        try:
+            return mgr.get(room_id).state.to_dict()
+        except KeyError:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+    @app.get("/sessions/{room_id}/events")
+    def get_events(room_id: str) -> Any:
+        return mgr.get(room_id).log.to_list()
+
+    @app.post("/sessions/{room_id}/characters")
+    def add_character(room_id: str, body: dict[str, Any]) -> dict[str, str]:
+        room = mgr.get(room_id)
+        char = room.gm.ruleset.new_character(
+            body["name"],
+            controller=body.get("controller"),
+            level=body.get("level", 1),
+            subspecies=body.get("subspecies", "人間"),
+            combat_style=body.get("combat_style", "ストライカー"),
+            abilities=body.get("abilities", {}),
+            skills=body.get("skills", []),
+        )
+        room.state.add_character(char)
+        return {"id": char.id}
+
+    @app.get("/sessions/{room_id}/export/{vtt}")
+    def export_vtt(room_id: str, vtt: str) -> Any:
+        room = mgr.get(room_id)
+        adapter = get_adapter(vtt)
+        payload = adapter.export_session(room.state)
+        if isinstance(payload, bytes):
+            return Response(
+                content=payload,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{room_id}.zip"'},
+            )
+        return JSONResponse(payload)
+
+    @app.websocket("/sessions/{room_id}/ws")
+    async def ws(websocket: WebSocket, room_id: str) -> None:
+        await websocket.accept()
+        try:
+            room = mgr.get(room_id)
+        except KeyError:
+            await websocket.close(code=4004)
+            return
+
+        queue = room.subscribe()
+        # Send the backlog so a late joiner sees the story so far.
+        await websocket.send_json({"kind": "backlog", "events": room.log.to_list()})
+
+        async def pump() -> None:
+            while True:
+                payload = await queue.get()
+                await websocket.send_json(payload)
+
+        pump_task = asyncio.create_task(pump())
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                if msg.get("type") == "action":
+                    # The GM call is synchronous (anthropic SDK); run off the loop.
+                    await run_in_threadpool(
+                        room.gm.turn, msg.get("text", ""), msg.get("actor_id")
+                    )
+        except WebSocketDisconnect:
+            pass
+        finally:
+            pump_task.cancel()
+            room.unsubscribe(queue)
+
+    return app

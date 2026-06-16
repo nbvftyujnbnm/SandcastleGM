@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sandcastlegm"
+version = "0.1.0"
+description = "An AI Game Master for tabletop RPGs: scene generation, map management, dice resolution, and virtual-tabletop integration. Ships with the open-source Sandcastle ruleset and a pluggable 'patch' system for other open systems."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "SandcastleGM contributors" }]
+keywords = ["ttrpg", "trpg", "game-master", "llm", "sandcastle", "udonarium", "cocofolia"]
+
+# Core has zero hard dependencies so the dice/ruleset/state engine runs anywhere.
+# Optional extras pull in the LLM and server stacks.
+dependencies = []
+
+[project.optional-dependencies]
+gm = ["anthropic>=0.49"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
+all = ["anthropic>=0.49", "fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
+dev = ["pytest>=8", "ruff>=0.4"]
+
+[project.scripts]
+sandcastlegm = "sandcastlegm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sandcastlegm*"]
+
+[tool.setuptools.package-data]
+"sandcastlegm.rulesets.sandcastle" = ["knowledge/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
