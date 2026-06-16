@@ -4,6 +4,7 @@ import json
 from sandcastlegm.core.events import EventLog, EventType
 from sandcastlegm.core.state import GameState
 from sandcastlegm.gm.engine import AIGameMaster
+from sandcastlegm.gm.providers import LLMProvider, LLMResponse, LLMToolCall
 from sandcastlegm.gm.tools import GMContext, TOOL_SPECS, execute_tool, tool_names
 from sandcastlegm.rulesets import registry
 
@@ -78,22 +79,21 @@ def test_unknown_tool_is_handled():
     assert execute_tool(ctx, "nope", {}).startswith("error")
 
 
-def test_engine_degraded_mode_without_api_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_engine_degraded_mode_without_provider():
     rs = registry.create("sandcastle", rng=random.Random(1))
     state = GameState(ruleset_id="sandcastle")
-    gm = AIGameMaster(rs, state, client=None)
+    gm = AIGameMaster(rs, state, provider=None)  # explicit None -> referee mode
     assert gm.available is False
     turn = gm.turn("I look around.")
     assert turn.degraded
     assert any(e.type == EventType.PLAYER_ACTION for e in turn.events)
 
 
-def test_engine_drives_a_mock_client():
-    """A fake Anthropic client exercises the full tool-use loop offline."""
+def test_engine_drives_a_mock_provider():
+    """A fake provider exercises the full vendor-neutral tool-use loop offline."""
     rs = registry.create("sandcastle", rng=random.Random(1))
     state = GameState(ruleset_id="sandcastle")
-    gm = AIGameMaster(rs, state, client=_MockClient())
+    gm = AIGameMaster(rs, state, provider=_MockProvider())
     assert gm.available is True
     turn = gm.turn("I kick the door.")
     assert "The door bursts open" in turn.narration
@@ -101,35 +101,33 @@ def test_engine_drives_a_mock_client():
     assert any(e.type == EventType.SCENE for e in gm.log.events)
 
 
-class _Block:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
+class _MockProvider(LLMProvider):
+    """Minimal provider: first turn calls a tool, second narrates."""
 
-
-class _Resp:
-    def __init__(self, content, stop_reason):
-        self.content = content
-        self.stop_reason = stop_reason
-
-
-class _MockClient:
-    """Minimal stand-in: first call uses a tool, second call narrates."""
+    name = "mock"
 
     def __init__(self):
-        self.messages = self
         self._calls = 0
+        self.history = []
 
-    def create(self, **kwargs):
+    @property
+    def available(self) -> bool:
+        return True
+
+    def add_user(self, text: str) -> None:
+        self.history.append(("user", text))
+
+    def add_tool_results(self, results) -> None:
+        self.history.append(("tool", results))
+
+    def generate(self, system: str, tools_spec) -> LLMResponse:
         self._calls += 1
         if self._calls == 1:
-            return _Resp(
-                content=[
-                    _Block(type="tool_use", id="t1", name="set_scene",
-                           input={"title": "Doorway", "narrative": "A heavy door."}),
+            return LLMResponse(
+                text="",
+                tool_calls=[
+                    LLMToolCall(id="t1", name="set_scene",
+                                args={"title": "Doorway", "narrative": "A heavy door."})
                 ],
-                stop_reason="tool_use",
             )
-        return _Resp(
-            content=[_Block(type="text", text="The door bursts open.")],
-            stop_reason="end_turn",
-        )
+        return LLMResponse(text="The door bursts open.", tool_calls=[])

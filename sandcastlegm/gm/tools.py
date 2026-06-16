@@ -211,6 +211,43 @@ def execute_tool(ctx: GMContext, name: str, tool_input: dict[str, Any]) -> str:
         return f"error: {type(exc).__name__}: {exc}"
 
 
+# --- argument coercion ---------------------------------------------------------
+# Different models serialise structured arguments differently (a real object, a
+# JSON string, or a list of key/value pairs). These helpers accept them all so a
+# tool call from any provider lands the same way.
+def _as_int_map(value: Any) -> dict[str, int]:
+    if not value:
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    if isinstance(value, dict):
+        return {str(k): int(v) for k, v in value.items()}
+    if isinstance(value, list):
+        out: dict[str, int] = {}
+        for item in value:
+            if isinstance(item, dict):
+                k = item.get("key") or item.get("label") or item.get("name")
+                v = item.get("value")
+                if k is not None and v is not None:
+                    out[str(k)] = int(v)
+        return out
+    return {}
+
+
+def _as_pairs(value: Any) -> list:
+    if not value:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    return value if isinstance(value, list) else []
+
+
 # --- individual tool handlers --------------------------------------------------
 def _roll_check(ctx: GMContext, ip: dict[str, Any]) -> str:
     req = CheckRequest(
@@ -218,7 +255,7 @@ def _roll_check(ctx: GMContext, ip: dict[str, Any]) -> str:
         ability=ip.get("ability"),
         skill=ip.get("skill"),
         target_number=ip.get("target_number"),
-        modifiers={k: int(v) for k, v in (ip.get("modifiers") or {}).items()},
+        modifiers=_as_int_map(ip.get("modifiers")),
         description=ip.get("description", ""),
     )
     result = ctx.ruleset.resolve_check(ctx.state, req)
@@ -260,7 +297,7 @@ def _set_scene(ctx: GMContext, ip: dict[str, Any]) -> str:
 
 def _create_map(ctx: GMContext, ip: dict[str, Any]) -> str:
     grid = MapGrid(name=ip["name"], width=int(ip["width"]), height=int(ip["height"]))
-    for cell in ip.get("walls", []) or []:
+    for cell in _as_pairs(ip.get("walls")):
         x, y = int(cell[0]), int(cell[1])
         grid.terrain[f"{x},{y}"] = "wall"
     ctx.state.add_map(grid)
@@ -306,7 +343,7 @@ def _spawn_npc(ctx: GMContext, ip: dict[str, Any]) -> str:
         is_pc=False,
         level=ip.get("level", 1),
         combat_style=ip.get("combat_style", "ストライカー"),
-        abilities=ip.get("abilities", {}),
+        abilities=_as_int_map(ip.get("abilities")),
     )
     ctx.state.add_character(char)
     ctx.log.append(Event(type=EventType.SYSTEM, text=f"NPC spawned: {char.name} ({char.id})", data={"id": char.id, "hp": char.hp}))

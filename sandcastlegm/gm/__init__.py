@@ -1,11 +1,20 @@
-"""The AI Game Master: engine, tool surface, and prompt assembly.
+"""The AI Game Master: engine, tool surface, prompts, and LLM providers.
 
-The ``anthropic`` SDK is an optional dependency (extra ``gm``). The engine
-imports it lazily and degrades to a deterministic referee when it (or an API
-key) is missing, so importing this package never hard-fails.
+The model backends (OpenRouter via the ``openai`` SDK, Anthropic via
+``anthropic``) are optional dependencies, imported lazily. The engine degrades
+to a deterministic referee when no provider/key is available, so importing this
+package never hard-fails.
 """
 
 from sandcastlegm.gm.engine import AIGameMaster, GMTurn
+from sandcastlegm.gm.providers import (
+    LLMProvider,
+    LLMResponse,
+    LLMToolCall,
+    ToolResult,
+    make_default_provider,
+    make_provider,
+)
 from sandcastlegm.gm.tools import GMContext, TOOL_SPECS, execute_tool, tool_names
 
 __all__ = [
@@ -15,4 +24,10 @@ __all__ = [
     "TOOL_SPECS",
     "execute_tool",
     "tool_names",
+    "LLMProvider",
+    "LLMResponse",
+    "LLMToolCall",
+    "ToolResult",
+    "make_provider",
+    "make_default_provider",
 ]

@@ -88,7 +88,11 @@ def cmd_play(args: argparse.Namespace) -> int:
 
     print()
     print(f"=== {state.title} — {ruleset.name} ===")
-    print(f"AI GM: {'on' if gm.available else 'OFF (referee mode — set ANTHROPIC_API_KEY for narration)'}")
+    provider_name = gm.provider.name if gm.provider is not None else "none"
+    status = f"on ({provider_name}: {gm.provider.model})" if gm.available else (
+        "OFF (referee mode — set OPENROUTER_API_KEY for narration)"
+    )
+    print(f"AI GM: {status}")
     print(HELP)
     if gm.available:
         gm.turn("(The players are ready. Open the adventure with an evocative first scene.)")

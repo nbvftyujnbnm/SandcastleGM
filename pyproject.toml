@@ -17,9 +17,19 @@ keywords = ["ttrpg", "trpg", "game-master", "llm", "sandcastle", "udonarium", "c
 dependencies = []
 
 [project.optional-dependencies]
-gm = ["anthropic>=0.49"]
+# LLM backends. OpenRouter (OpenAI-compatible) is the default; Anthropic is also
+# supported. `gm` pulls the default backend.
+gm = ["openai>=1.40"]
+openrouter = ["openai>=1.40"]
+anthropic = ["anthropic>=0.49"]
 server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
-all = ["anthropic>=0.49", "fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
+all = [
+    "openai>=1.40",
+    "anthropic>=0.49",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "websockets>=12",
+]
 dev = ["pytest>=8", "ruff>=0.4"]
 
 [project.scripts]

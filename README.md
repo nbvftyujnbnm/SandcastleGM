@@ -15,8 +15,9 @@ state into virtual tabletops your group already uses — **Udonarium** and
 > Status: **0.1 foundation.** The core engine, Sandcastle ruleset, dice
 > resolution, scene/map/token state, the AI GM tool loop, VTT exporters, the
 > multiplayer server, and a local play CLI are all implemented and tested. The
-> AI GM uses Claude (Opus 4.8 by default) and degrades to a deterministic
-> referee when no API key is present, so the whole system is runnable offline.
+> AI GM is vendor-neutral via a provider abstraction (OpenRouter by default,
+> Anthropic supported) and degrades to a deterministic referee when no API key
+> is present, so the whole system is runnable offline.
 
 ---
 
@@ -58,7 +59,7 @@ Three requirements shaped the architecture:
 |---|---|---|
 | `sandcastlegm.core` | Dice engine, game state (scenes, maps, tokens, characters, turn order), event log | nothing |
 | `sandcastlegm.rulesets` | The `Ruleset` patch interface, a registry, and the Sandcastle implementation | core |
-| `sandcastlegm.gm` | The AI Game Master: Claude tool-use loop, tool surface, prompt assembly | core, rulesets, `anthropic`* |
+| `sandcastlegm.gm` | The AI Game Master: vendor-neutral tool-use loop, tool surface, prompt assembly, and LLM providers (OpenRouter / Anthropic) | core, rulesets, `openai`* |
 | `sandcastlegm.vtt` | Exporters to Udonarium (XML/zip) and Cocofolia (clipboard JSON) | core |
 | `sandcastlegm.server` | Multiplayer WebSocket session server | gm, `fastapi`* |
 | `sandcastlegm.cli` | Local terminal play, `serve`, and `rulesets` commands | all of the above |
@@ -69,18 +70,41 @@ dependencies, so the dice/rules/state engine runs anywhere.
 ## Install
 
 ```bash
-pip install -e ".[all]"     # everything (AI GM + server)
-pip install -e ".[gm]"      # AI GM only (anthropic)
-pip install -e ".[dev]"     # tests
-pip install -e .            # core engine + rulesets only, no deps
+pip install -e ".[all]"          # everything (AI GM + server)
+pip install -e ".[gm]"           # AI GM, default OpenRouter backend (openai SDK)
+pip install -e ".[anthropic]"    # add the Anthropic backend
+pip install -e ".[dev]"          # tests
+pip install -e .                 # core engine + rulesets only, no deps
 ```
 
-Configure the AI GM (optional — see `.env.example`):
+### Choosing an LLM backend
+
+The GM is vendor-neutral: it drives a tool-use loop against an `LLMProvider`.
+Two backends ship today; new ones are a matter of implementing the interface in
+`sandcastlegm/gm/providers/`.
+
+**OpenRouter (default)** — one OpenAI-compatible endpoint for hundreds of hosted
+and open-weight models. Community testing has found mid-size open models
+(~27B, e.g. Gemma 3 27B) make surprisingly strong TTRPG GMs, so that's the
+default model.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export SANDCASTLEGM_MODEL=claude-opus-4-8   # default
+export OPENROUTER_API_KEY=sk-or-...
+export SANDCASTLEGM_MODEL=google/gemma-3-27b-it   # any OpenRouter model id
 ```
+
+**Anthropic (Claude)**:
+
+```bash
+export SANDCASTLEGM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+export SANDCASTLEGM_MODEL=claude-opus-4-8
+```
+
+Leave `SANDCASTLEGM_PROVIDER` unset to auto-detect from whichever key is present
+(OpenRouter preferred). The full rulebook is sent to the model only when
+`SANDCASTLEGM_INCLUDE_RULEBOOK=true` (it needs a large context window); otherwise
+the always-on ruleset guidance digest carries the core rules. See `.env.example`.
 
 ## Play locally
 
@@ -171,10 +195,12 @@ See `sandcastlegm/rulesets/sandcastle/` for a complete worked example.
   ruleset rolls and decides success. The model never writes a result itself.
 - **State is tools, not memory.** Scenes, maps, tokens, HP, and initiative
   change only through tools that mutate the shared state and log an event.
-- **The rulebook is context.** The full Sandcastle rulebook is loaded into the
-  system prompt (and prompt-cached) so the GM adjudicates from the actual rules.
-- **It degrades gracefully.** With no API key it runs as a referee: state and
-  dice still work via commands; only narration is off.
+- **The rules are context.** A compact ruleset guidance digest (core mechanic,
+  abilities, skills, difficulty scale) is always in the system prompt; the full
+  rulebook can be inlined for large-context models via
+  `SANDCASTLEGM_INCLUDE_RULEBOOK=true`.
+- **It degrades gracefully.** With no provider/API key it runs as a referee:
+  state and dice still work via commands; only narration is off.
 
 ## Develop
 
