@@ -14,12 +14,15 @@ from sandcastlegm.gm.providers.base import (
     LLMResponse,
     LLMToolCall,
     ToolResult,
-)
+)  # noqa: F401  (re-exported)
 from sandcastlegm.gm.providers.anthropic_provider import AnthropicProvider
+from sandcastlegm.gm.providers.gemini import GeminiProvider
+from sandcastlegm.gm.providers.openai_compat import OpenAICompatibleProvider
 from sandcastlegm.gm.providers.openrouter import OpenRouterProvider
 
 _FACTORIES = {
     "openrouter": OpenRouterProvider,
+    "gemini": GeminiProvider,
     "anthropic": AnthropicProvider,
 }
 
@@ -39,6 +42,8 @@ def make_default_provider(model: str | None = None) -> LLMProvider | None:
 
     if os.environ.get("OPENROUTER_API_KEY"):
         return OpenRouterProvider(model=model)
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return GeminiProvider(model=model)
     if os.environ.get("ANTHROPIC_API_KEY"):
         return AnthropicProvider(model=model)
     return None
@@ -49,7 +54,9 @@ __all__ = [
     "LLMResponse",
     "LLMToolCall",
     "ToolResult",
+    "OpenAICompatibleProvider",
     "OpenRouterProvider",
+    "GeminiProvider",
     "AnthropicProvider",
     "make_provider",
     "make_default_provider",

@@ -2,6 +2,7 @@ import json
 
 from sandcastlegm.gm.providers import (
     AnthropicProvider,
+    GeminiProvider,
     OpenRouterProvider,
     make_default_provider,
     make_provider,
@@ -118,10 +119,33 @@ def test_provider_selection(monkeypatch):
 
 
 def test_provider_selection_none_without_keys(monkeypatch):
-    monkeypatch.delenv("SANDCASTLEGM_PROVIDER", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for var in ("SANDCASTLEGM_PROVIDER", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY",
+                "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     assert make_default_provider() is None
+
+
+def test_gemini_provider(monkeypatch):
+    for var in ("SANDCASTLEGM_PROVIDER", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY",
+                "GOOGLE_API_KEY", "SANDCASTLEGM_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+
+    # Drives the shared OpenAI-compatible tool loop against a fake client.
+    fake = _FakeOpenAI()
+    provider = GeminiProvider(model="gemini-flash", client=fake)
+    assert provider.name == "gemini"
+    assert provider.model == "gemini-2.5-flash"  # preset resolved
+    provider.add_user("hi")
+    resp = provider.generate("SYS", TOOL_SPECS)
+    assert resp.tool_calls[0].name == "roll_dice"
+
+    # Selection: a Gemini key (and no OpenRouter key) picks the Gemini provider.
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    assert isinstance(make_default_provider(), GeminiProvider)
+    assert isinstance(make_provider("gemini"), GeminiProvider)
+
+    # Pass-through for full model ids.
+    assert GeminiProvider(model="gemini-2.0-flash", client=fake).model == "gemini-2.0-flash"
 
 
 def test_model_presets_resolve():

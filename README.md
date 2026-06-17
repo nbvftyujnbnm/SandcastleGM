@@ -81,8 +81,9 @@ pip install -e .                 # core engine + rulesets only, no deps
 ### Choosing an LLM backend
 
 The GM is vendor-neutral: it drives a tool-use loop against an `LLMProvider`.
-Two backends ship today; new ones are a matter of implementing the interface in
-`sandcastlegm/gm/providers/`.
+Three backends ship today — OpenRouter, Gemini, and Anthropic (the first two
+share an OpenAI-compatible base); new ones are a matter of implementing the
+interface in `sandcastlegm/gm/providers/`.
 
 **OpenRouter (default)** — one OpenAI-compatible endpoint for hundreds of hosted
 and open-weight models. Community testing has found mid-size open models
@@ -133,6 +134,16 @@ Per-model result JSON (including every raw response) is written to
 `probe_results/`, and a ranked summary prints at the end. Needs
 `OPENROUTER_API_KEY` and the `gm` extra. (Judge tip: reasoning judge models burn
 their budget on hidden thinking — the default judge cap is 300 tokens.)
+
+**Google Gemini** — a genuinely free tier (no credit card, no prior purchase,
+unlike OpenRouter's free models). Get a key at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+
+```bash
+export SANDCASTLEGM_PROVIDER=gemini
+export GEMINI_API_KEY=...                  # or GOOGLE_API_KEY
+export SANDCASTLEGM_MODEL=gemini-2.5-flash # or gemini-2.5-pro / gemini-flash / gemini-pro
+```
 
 **Anthropic (Claude)**:
 
