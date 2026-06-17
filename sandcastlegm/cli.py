@@ -70,6 +70,11 @@ def cmd_models(_: argparse.Namespace) -> int:
         print(f"  {'':<18} score {m.score}  — {m.note}\n")
     print("Use with: sandcastlegm play --model <key|full-model-id>")
     print("or set SANDCASTLEGM_MODEL in your environment.")
+    print(
+        "\nFree tier: add ':free' for OpenRouter's free variant "
+        "(e.g. gemma3-27b:free). Free models are rate-limited and not available "
+        "for every model."
+    )
     return 0
 
 
@@ -97,15 +102,29 @@ def cmd_probe(args: argparse.Namespace) -> int:
         )
 
     reports = []
+    judge_errors = 0
     for m in models:
         full = resolve_model(m)
         print(f"Running probe: {full} ...")
+        runner = ProbeRunner(build_openrouter_chat(full), judge_chat)
         try:
-            report = ProbeRunner(build_openrouter_chat(full), judge_chat).run(model=full)
+            report = runner.run(model=full)
         except Exception as exc:  # noqa: BLE001 - report and continue to next model
             print(f"  failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            if "credit" in str(exc).lower() or "402" in str(exc):
+                print(
+                    "  hint: OpenRouter requires a one-time credit purchase (~$10 "
+                    "lifetime) before its ':free' models work; new accounts get a "
+                    "402 like this. Either add credits, point OPENROUTER_BASE_URL "
+                    "at a local OpenAI-compatible server (Ollama/LM Studio), or use "
+                    "a paid model.",
+                    file=sys.stderr,
+                )
             continue
         reports.append(report)
+        judge_errors += runner.judge_errors
+        if runner.judge_errors:
+            print(f"  note: {runner.judge_errors} judge call(s) failed — those scores omitted.")
         (out_dir / f"{full.replace('/', '_')}.json").write_text(
             json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -113,6 +132,14 @@ def cmd_probe(args: argparse.Namespace) -> int:
     if reports:
         print("\n" + summarize(reports))
         print(f"\nFull results written to {out_dir}/")
+    if judge_errors:
+        print(
+            "\nThe judge model failed on some calls. The default judge "
+            f"({args.judge}) is a paid model — for a free-only account, pass a "
+            "free judge (e.g. --judge openai/gpt-oss-20b:free) or --no-judge to "
+            "rely on the rule-based auto-scores.",
+            file=sys.stderr,
+        )
     return 0
 
 

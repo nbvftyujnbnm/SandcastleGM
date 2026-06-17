@@ -143,3 +143,33 @@ def test_openrouter_resolves_preset_key():
     fake = _FakeOpenAI()
     provider = OpenRouterProvider(model="mistral-medium", client=fake)
     assert provider.model == "mistralai/mistral-medium-3.1"
+
+
+def test_free_suffix_resolution():
+    from sandcastlegm.gm.models import resolve_model
+
+    assert resolve_model("gemma3-27b:free") == "google/gemma-3-27b-it:free"
+    assert resolve_model("google/gemma-3-27b-it:free") == "google/gemma-3-27b-it:free"
+    # preset still works without the suffix
+    assert resolve_model("gemma3-27b") == "google/gemma-3-27b-it"
+
+
+def test_probe_judge_error_is_nonfatal():
+    from sandcastlegm.probe import ProbeRunner
+
+    def model_chat(system, user):
+        return (
+            "Ash drifts through the lantern glow as you step into the soot-choked "
+            "market; stalls hiss with steam and the crowd parts. What do you do?"
+        )
+
+    def bad_judge(system, user):
+        raise RuntimeError("402 insufficient credits")
+
+    runner = ProbeRunner(model_chat, bad_judge)
+    report = runner.run(model="m")
+    assert runner.judge_errors == len(report.results)  # every judge call failed
+    assert all(r.judge is None for r in report.results)
+    assert report.judge_means == {}
+    # Auto-scoring still produced verdicts.
+    assert sum(report.auto_counts.values()) == len(report.results)

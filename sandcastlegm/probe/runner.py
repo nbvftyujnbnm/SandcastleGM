@@ -73,16 +73,22 @@ class ProbeRunner:
         self.chat = chat
         self.judge_chat = judge_chat
         self.scenarios = scenarios or SCENARIOS
+        self.judge_errors = 0  # judge calls that failed (e.g. credits/rate limit)
 
     def run_scenario(self, scenario: Scenario) -> ScenarioResult:
         response = self.chat(PROBE_SYSTEM, scenario.instruction).strip()
         auto = scoring.auto_score(response, scenario).to_dict()
         judge = None
         if self.judge_chat is not None:
-            raw = self.judge_chat(
-                scoring.JUDGE_SYSTEM, scoring.build_judge_prompt(scenario, response)
-            )
-            judge = scoring.parse_judge(raw)
+            # A judge failure (credits, rate limit, bad JSON) must not sink the
+            # run — auto-scoring still stands on its own.
+            try:
+                raw = self.judge_chat(
+                    scoring.JUDGE_SYSTEM, scoring.build_judge_prompt(scenario, response)
+                )
+                judge = scoring.parse_judge(raw)
+            except Exception:  # noqa: BLE001
+                self.judge_errors += 1
         return ScenarioResult(key=scenario.key, response=response, auto=auto, judge=judge)
 
     def run(self, model: str = "model") -> ModelReport:
@@ -109,6 +115,7 @@ def build_openrouter_chat(
             raise RuntimeError("OPENROUTER_API_KEY is required to run the probe")
         from openai import OpenAI
 
+        base_url = os.environ.get("OPENROUTER_BASE_URL", base_url)
         client = OpenAI(api_key=key, base_url=base_url)
 
     def chat(system: str, user: str) -> str:

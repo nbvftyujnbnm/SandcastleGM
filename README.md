@@ -142,6 +142,19 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export SANDCASTLEGM_MODEL=claude-opus-4-8
 ```
 
+**Free / local models.** Append `:free` for OpenRouter's free variant
+(`gemma3-27b:free`), but note OpenRouter requires a **one-time ~$10 credit
+purchase** before its free models work beyond a tiny daily cap — a brand-new
+account gets a `402 insufficient credits` even on `:free` models. For a genuinely
+no-cost path, point the client at any OpenAI-compatible server via
+`OPENROUTER_BASE_URL` (set `OPENROUTER_API_KEY` to any placeholder):
+
+```bash
+export OPENROUTER_BASE_URL=http://localhost:11434/v1   # Ollama / LM Studio
+export OPENROUTER_API_KEY=local
+export SANDCASTLEGM_MODEL=gemma3:27b
+```
+
 Leave `SANDCASTLEGM_PROVIDER` unset to auto-detect from whichever key is present
 (OpenRouter preferred). The full rulebook is sent to the model only when
 `SANDCASTLEGM_INCLUDE_RULEBOOK=true` (it needs a large context window); otherwise

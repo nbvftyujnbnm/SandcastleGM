@@ -70,6 +70,10 @@ class OpenRouterProvider(LLMProvider):
             headers["X-Title"] = app
         if extra_headers:
             headers.update(extra_headers)
+        # Point at any OpenAI-compatible endpoint (e.g. a local Ollama/LM Studio
+        # server) for a genuinely free path. For local servers OPENROUTER_API_KEY
+        # can be any non-empty placeholder.
+        base_url = os.environ.get("OPENROUTER_BASE_URL", base_url)
         return OpenAI(api_key=key, base_url=base_url, default_headers=headers or None)
 
     @property

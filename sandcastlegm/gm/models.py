@@ -70,7 +70,17 @@ _PRESETS: dict[str, str] = {m.key: m.id for m in RECOMMENDED_OPENROUTER_MODELS}
 
 
 def resolve_model(name: str | None) -> str | None:
-    """Map a preset key to its full model id; pass anything else through."""
+    """Map a preset key to its full model id; pass anything else through.
+
+    A trailing ``:free`` selects OpenRouter's free variant of a model, and works
+    on preset keys too: ``gemma3-27b:free`` -> ``google/gemma-3-27b-it:free``.
+    Full model ids (with or without ``:free``) pass through unchanged. Free
+    variants are rate-limited and not offered for every model; if one 404s, drop
+    the suffix (paid) or choose another.
+    """
     if name is None:
         return None
+    if name.endswith(":free"):
+        base = name[: -len(":free")]
+        return _PRESETS.get(base, base) + ":free"
     return _PRESETS.get(name, name)
