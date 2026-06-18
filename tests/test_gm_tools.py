@@ -101,6 +101,44 @@ def test_engine_drives_a_mock_provider():
     assert any(e.type == EventType.SCENE for e in gm.log.events)
 
 
+def test_engine_nudges_when_turn_produces_no_narration():
+    """A tool-only / silent turn must still yield player-facing prose."""
+    rs = registry.create("sandcastle", rng=random.Random(1))
+    state = GameState(ruleset_id="sandcastle")
+    gm = AIGameMaster(rs, state, provider=_SilentThenNudge())
+    turn = gm.turn("I nod.")
+    assert turn.narration == "You nod; the room waits."
+    assert state.current_scene is not None  # the tool call still applied
+
+
+class _SilentThenNudge(LLMProvider):
+    """call1: tool only, no text. call2: empty (loop ends). call3 (nudge): text."""
+
+    name = "silent"
+
+    def __init__(self):
+        self._calls = 0
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def add_user(self, text: str) -> None:
+        pass
+
+    def add_tool_results(self, results) -> None:
+        pass
+
+    def generate(self, system: str, tools_spec) -> LLMResponse:
+        self._calls += 1
+        if self._calls == 1:
+            return LLMResponse(text="", tool_calls=[
+                LLMToolCall(id="t1", name="set_scene", args={"title": "Hall"})])
+        if self._calls == 2:
+            return LLMResponse(text="", tool_calls=[])
+        return LLMResponse(text="You nod; the room waits.", tool_calls=[])
+
+
 class _MockProvider(LLMProvider):
     """Minimal provider: first turn calls a tool, second narrates."""
 

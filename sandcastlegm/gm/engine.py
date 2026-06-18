@@ -127,4 +127,17 @@ class AIGameMaster:
             ]
             self.provider.add_tool_results(results)
 
-        return "\n\n".join(p.strip() for p in narration_parts if p.strip())
+        narration = "\n\n".join(p.strip() for p in narration_parts if p.strip())
+
+        # Some models end a turn on a tool call (or return empty content) without
+        # narrating, which would leave players with no visible response. Nudge once
+        # so every turn yields prose.
+        if not narration:
+            self.provider.add_user(
+                "(To the GM: briefly describe the result of the last action(s) to "
+                "the players in 1-3 sentences, in their language.)"
+            )
+            follow = self.provider.generate(self._static_system, tools.TOOL_SPECS)
+            narration = (follow.text or "").strip()
+
+        return narration
