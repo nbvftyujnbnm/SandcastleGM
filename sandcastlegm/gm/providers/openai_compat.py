@@ -122,20 +122,26 @@ class OpenAICompatibleProvider(LLMProvider):
         assistant: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
         calls: list[LLMToolCall] = []
         if getattr(msg, "tool_calls", None):
-            assistant["tool_calls"] = [
-                {
+            tool_call_dicts: list[dict[str, Any]] = []
+            for tc in msg.tool_calls:
+                entry: dict[str, Any] = {
                     "id": tc.id,
                     "type": "function",
                     "function": {"name": tc.function.name, "arguments": tc.function.arguments},
                 }
-                for tc in msg.tool_calls
-            ]
-            for tc in msg.tool_calls:
+                # Gemini 3.x returns a thought signature in `extra_content` that
+                # must be echoed back on the tool call, or the next request 400s
+                # ("Function call is missing a thought_signature"). Preserve it.
+                extra = getattr(tc, "extra_content", None)
+                if extra:
+                    entry["extra_content"] = extra
+                tool_call_dicts.append(entry)
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 calls.append(LLMToolCall(id=tc.id, name=tc.function.name, args=args))
+            assistant["tool_calls"] = tool_call_dicts
 
         self._messages.append(assistant)
         return LLMResponse(text=msg.content or "", tool_calls=calls)
