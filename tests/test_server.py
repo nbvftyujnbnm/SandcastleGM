@@ -73,14 +73,30 @@ def test_spectator_pages_and_board():
     assert sid in watch.text
     assert "/ws" in watch.text and "refreshState" in watch.text
 
-    # Board is empty until a map exists, then renders it.
-    assert client.get(f"/sessions/{sid}/board").json() == {"ascii": ""}
+    # Watch page includes the graphical grid renderer.
+    assert "renderBoard" in watch.text and 'class="board"' in watch.text
+
+    # Board is empty until a map exists, then returns ascii + structured grid.
+    empty = client.get(f"/sessions/{sid}/board").json()
+    assert empty["ascii"] == "" and empty["grid"] is None
+
     room = mgr.get(sid)
     ctx = GMContext(ruleset=room.gm.ruleset, state=room.state, log=room.log)
+    hero = room.gm.ruleset.new_character("Aria")
+    room.state.add_character(hero)
     execute_tool(ctx, "set_scene", {"title": "Hall"})
-    execute_tool(ctx, "create_map", {"name": "Hall", "width": 4, "height": 3})
-    ascii_board = client.get(f"/sessions/{sid}/board").json()["ascii"]
-    assert ascii_board and "\n" in ascii_board
+    execute_tool(ctx, "create_map", {"name": "Hall", "width": 4, "height": 3, "walls": [[0, 0]]})
+    execute_tool(ctx, "place_token", {"name": "Aria", "x": 2, "y": 1, "kind": "pc",
+                                      "character_id": hero.id, "glyph": "@"})
+
+    board = client.get(f"/sessions/{sid}/board").json()
+    assert board["ascii"] and "\n" in board["ascii"]
+    grid = board["grid"]
+    assert grid["width"] == 4 and grid["height"] == 3
+    assert grid["terrain"]["0,0"] == "wall"
+    tok = next(t for t in grid["tokens"] if t["name"] == "Aria")
+    assert (tok["x"], tok["y"]) == (2, 1)
+    assert tok["hp"] == hero.hp and tok["max_hp"] == hero.max_hp and tok["downed"] is False
 
 
 def test_save_and_load_session(tmp_path, monkeypatch):

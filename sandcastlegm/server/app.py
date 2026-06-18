@@ -137,10 +137,33 @@ def create_app(manager: SessionManager | None = None) -> Any:
     @app.get("/sessions/{room_id}/board")
     def board(room_id: str) -> Any:
         try:
-            grid = mgr.get(room_id).state.active_map
+            room = mgr.get(room_id)
         except KeyError:
             return JSONResponse({"error": "not found"}, status_code=404)
-        return {"ascii": grid.render_ascii(reveal_hidden=True) if grid else ""}
+        grid = room.state.active_map
+        if grid is None:
+            return {"ascii": "", "grid": None}
+        chars = room.state.characters
+        tokens = []
+        for t in grid.tokens.values():
+            ch = chars.get(t.character_id) if t.character_id else None
+            tokens.append({
+                "id": t.id, "name": t.name, "x": t.position.x, "y": t.position.y,
+                "glyph": t.glyph, "color": t.color, "kind": t.kind.value,
+                "hidden": t.hidden,
+                "hp": ch.hp if ch else None,
+                "max_hp": ch.max_hp if ch else None,
+                "downed": bool(ch and ch.hp <= 0),
+            })
+        return {
+            "ascii": grid.render_ascii(reveal_hidden=True),
+            "grid": {
+                "name": grid.name, "width": grid.width, "height": grid.height,
+                "cell_size_m": grid.cell_size_m,
+                "terrain": dict(grid.terrain),
+                "tokens": tokens,
+            },
+        }
 
     @app.get("/rulesets")
     def rulesets() -> dict[str, str]:

@@ -85,8 +85,15 @@ WATCH_HTML = """<!doctype html>
   .bar { height:6px; background:#3a2d2d; border-radius:3px; overflow:hidden; margin-top:2px; }
   .bar > i { display:block; height:100%; background:#5fae5f; }
   .down { opacity:.5; text-decoration:line-through; }
-  pre.map { background:#0e1014; padding:8px; border-radius:6px; overflow:auto;
-            font-size:12px; line-height:1.1; }
+  #map { overflow:auto; }
+  .board { display:grid; gap:1px; background:#2c313c; padding:1px; width:max-content; }
+  .cell { width:18px; height:18px; background:#0e1014; position:relative; }
+  .cell.wall { background:#3a3f4b; } .cell.water { background:#1d3a5a; }
+  .cell.difficult { background:#2a241a; }
+  .tok { position:absolute; inset:1px; border-radius:3px; display:flex;
+         align-items:center; justify-content:center; font-size:11px; font-weight:bold;
+         color:#fff; cursor:default; }
+  .tok.downed { opacity:.4; }
   form { display:flex; gap:8px; padding:10px; border-top:1px solid #2c313c; background:#1b1e25; }
   form select, form input { padding:8px; background:#0e1014; color:#e6e6e6;
             border:1px solid #2c313c; border-radius:6px; }
@@ -100,7 +107,7 @@ WATCH_HTML = """<!doctype html>
   <div id="panel">
     <h3>キャラクター</h3><div id="chars"></div>
     <h3>イニシアチブ</h3><div id="init">—</div>
-    <h3>マップ</h3><pre class="map" id="map">（なし）</pre>
+    <h3>マップ</h3><div id="map">（なし）</div>
   </div>
   <div id="feedwrap">
     <div id="feed"></div>
@@ -153,7 +160,33 @@ async function refreshState() {
     chars.filter(c => c.is_pc).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
   sel.value = cur;
   const board = await (await fetch('/sessions/' + ROOM + '/board')).json();
-  document.getElementById('map').textContent = board.ascii || '（なし）';
+  renderBoard(board.grid);
+}
+
+function renderBoard(grid) {
+  const el = document.getElementById('map');
+  if (!grid) { el.textContent = '（マップなし）'; return; }
+  const terr = grid.terrain || {};
+  const cells = [];
+  for (let y = 0; y < grid.height; y++)
+    for (let x = 0; x < grid.width; x++) {
+      const tag = terr[x + ',' + y];
+      cells.push('<div class="cell' + (tag ? ' ' + tag : '') + '"></div>');
+    }
+  el.innerHTML = '<div class="board" style="grid-template-columns:repeat(' +
+    grid.width + ',18px)">' + cells.join('') + '</div>';
+  const board = el.querySelector('.board');
+  (grid.tokens || []).forEach(t => {
+    const cell = board.children[t.y * grid.width + t.x];
+    if (!cell) return;
+    const tok = document.createElement('div');
+    tok.className = 'tok' + (t.downed ? ' downed' : '');
+    tok.style.background = t.color || '#888';
+    tok.textContent = (t.glyph || t.name || '?').slice(0, 1);
+    const hp = (t.hp != null) ? ' ' + t.hp + '/' + t.max_hp : '';
+    tok.title = (t.name || '') + hp + (t.downed ? ' (戦闘不能)' : '');
+    cell.appendChild(tok);
+  });
 }
 
 let ws;
