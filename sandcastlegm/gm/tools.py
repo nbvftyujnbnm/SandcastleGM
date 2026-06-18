@@ -168,8 +168,23 @@ TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "roll_initiative",
+        "description": (
+            "Start combat by rolling initiative and setting the turn order. Uses "
+            "the ruleset's rule (Sandcastle: each side rolls 1d6, higher goes "
+            "first, ties favour PCs). Omit combatant_ids to include everyone."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "combatant_ids": {"type": "array", "items": {"type": "string"},
+                                  "description": "Character ids in the fight; default = all."}
+            },
+        },
+    },
+    {
         "name": "set_turn_order",
-        "description": "Begin a tactical encounter by setting initiative order (list of character ids).",
+        "description": "Set the initiative order explicitly (list of character ids), e.g. when players choose their own order.",
         "input_schema": {
             "type": "object",
             "properties": {"order": {"type": "array", "items": {"type": "string"}}},
@@ -178,7 +193,12 @@ TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "advance_turn",
-        "description": "Advance initiative to the next combatant.",
+        "description": "Advance initiative to the next living combatant (downed combatants are skipped). Increments the round when it wraps.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "end_combat",
+        "description": "End the encounter and clear the initiative order.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
@@ -374,19 +394,69 @@ def _update_character(ctx: GMContext, ip: dict[str, Any]) -> str:
     return f"{char.name}: hp {char.hp}/{char.max_hp}, conditions {char.conditions}"
 
 
+def _name(ctx: GMContext, cid: str | None) -> str:
+    char = ctx.state.characters.get(cid) if cid else None
+    return char.name if char else (cid or "—")
+
+
+def _alive(ctx: GMContext, cid: str | None) -> bool:
+    char = ctx.state.characters.get(cid) if cid else None
+    return char is not None and char.hp > 0
+
+
+def _begin_turn_order(ctx: GMContext, order: list[str], desc: str) -> str:
+    to = ctx.state.turn_order
+    to.order = list(order)
+    to.round = 1
+    to.index = 0
+    # If the first listed combatant is already down, move to a living one.
+    if to.order and not _alive(ctx, to.active):
+        for _ in range(len(to.order)):
+            if _alive(ctx, to.advance()):
+                break
+    names = " → ".join(_name(ctx, c) for c in to.order)
+    ctx.log.append(
+        Event(type=EventType.TURN, text=f"{desc} 行動順: {names}", data=to.to_dict())
+    )
+    return f"initiative set ({desc}); active: {_name(ctx, to.active)}"
+
+
+def _roll_initiative(ctx: GMContext, ip: dict[str, Any]) -> str:
+    ids = ip.get("combatant_ids") or list(ctx.state.characters.keys())
+    order, desc = ctx.ruleset.roll_initiative(ctx.state, ids)
+    return _begin_turn_order(ctx, order, desc)
+
+
 def _set_turn_order(ctx: GMContext, ip: dict[str, Any]) -> str:
-    ctx.state.turn_order.order = list(ip["order"])
-    ctx.state.turn_order.round = 1
-    ctx.state.turn_order.index = 0
-    active = ctx.state.turn_order.active
-    ctx.log.append(Event(type=EventType.TURN, text="Initiative set", data=ctx.state.turn_order.to_dict()))
-    return f"turn order set; active: {active}"
+    return _begin_turn_order(ctx, list(ip["order"]), "行動順を設定")
 
 
 def _advance_turn(ctx: GMContext, ip: dict[str, Any]) -> str:
-    active = ctx.state.turn_order.advance()
-    ctx.log.append(Event(type=EventType.TURN, text=f"Turn: {active}", data=ctx.state.turn_order.to_dict()))
-    return f"now acting: {active} (round {ctx.state.turn_order.round})"
+    to = ctx.state.turn_order
+    if not to.order:
+        return "no turn order set; call roll_initiative first"
+    if not any(_alive(ctx, c) for c in to.order):
+        return "no living combatants remain"
+    # Advance to the next living combatant, skipping the downed.
+    active = to.active
+    for _ in range(len(to.order) + 1):
+        active = to.advance()
+        if _alive(ctx, active):
+            break
+    ctx.log.append(
+        Event(type=EventType.TURN,
+              text=f"手番: {_name(ctx, active)}（ラウンド{to.round}）",
+              data=to.to_dict())
+    )
+    return f"now acting: {_name(ctx, active)} ({active}), round {to.round}"
+
+
+def _end_combat(ctx: GMContext, ip: dict[str, Any]) -> str:
+    ctx.state.turn_order.order = []
+    ctx.state.turn_order.round = 0
+    ctx.state.turn_order.index = 0
+    ctx.log.append(Event(type=EventType.TURN, text="戦闘終了", data={}))
+    return "combat ended; initiative cleared"
 
 
 def _update_notes(ctx: GMContext, ip: dict[str, Any]) -> str:
@@ -403,7 +473,9 @@ _HANDLERS = {
     "move_token": _move_token,
     "spawn_npc": _spawn_npc,
     "update_character": _update_character,
+    "roll_initiative": _roll_initiative,
     "set_turn_order": _set_turn_order,
     "advance_turn": _advance_turn,
+    "end_combat": _end_combat,
     "update_notes": _update_notes,
 }

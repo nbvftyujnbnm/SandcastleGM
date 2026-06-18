@@ -132,6 +132,26 @@ class Ruleset(ABC):
         skill bonuses, level, and so on.
         """
 
+    def roll_initiative(self, state: Any, combatant_ids: list[str]) -> tuple[list[str], str]:
+        """Decide turn order for a fight.
+
+        Default (and Sandcastle's rule): the player side and the opposing side
+        each roll one die; the higher roll acts first, ties favour the PCs. Order
+        within a side is preserved as given. Returns ``(ordered_ids, description)``.
+        """
+        chars = getattr(state, "characters", {})
+        pcs = [c for c in combatant_ids if getattr(chars.get(c), "is_pc", False)]
+        foes = [c for c in combatant_ids if c not in pcs]
+        pc_roll = self.roller.roll("1d6").total if pcs else -1
+        foe_roll = self.roller.roll("1d6").total if foes else -1
+        pcs_first = pc_roll >= foe_roll  # ties favour the PCs
+        order = (pcs + foes) if pcs_first else (foes + pcs)
+        desc = (
+            f"先攻判定: PC側 1d6={pc_roll if pcs else '—'} / 敵側 1d6={foe_roll if foes else '—'}"
+            f" → {'PC' if pcs_first else '敵'}側が先攻"
+        )
+        return order, desc
+
     # --- knowledge & voice ----------------------------------------------------
     @abstractmethod
     def knowledge_text(self) -> str:
