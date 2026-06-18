@@ -99,13 +99,30 @@ class SessionManager:
 def create_app(manager: SessionManager | None = None) -> Any:
     """Build the FastAPI app. Requires the ``server`` extra (fastapi, uvicorn)."""
     from fastapi import FastAPI
-    from fastapi.responses import JSONResponse, Response
+    from fastapi.responses import HTMLResponse, JSONResponse, Response
     from starlette.concurrency import run_in_threadpool
 
+    from sandcastlegm.server.spectator import index_page, watch_page
     from sandcastlegm.vtt import get_adapter
 
     mgr = manager or SessionManager()
     app = FastAPI(title="SandcastleGM", version="0.1.0")
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> str:
+        return index_page()
+
+    @app.get("/watch/{room_id}", response_class=HTMLResponse)
+    def watch(room_id: str) -> str:
+        return watch_page(room_id)
+
+    @app.get("/sessions/{room_id}/board")
+    def board(room_id: str) -> Any:
+        try:
+            grid = mgr.get(room_id).state.active_map
+        except KeyError:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return {"ascii": grid.render_ascii(reveal_hidden=True) if grid else ""}
 
     @app.get("/rulesets")
     def rulesets() -> dict[str, str]:

@@ -54,6 +54,35 @@ def test_two_players_share_broadcasts():
     assert len(client.get(f"/sessions/{sid}/events").json()) == 2
 
 
+def test_spectator_pages_and_board():
+    from sandcastlegm.gm.tools import GMContext, execute_tool
+
+    mgr = SessionManager()
+    client = TestClient(create_app(mgr))
+
+    idx = client.get("/")
+    assert idx.status_code == 200
+    assert "SandcastleGM" in idx.text
+    assert "text/html" in idx.headers["content-type"]
+
+    sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
+
+    # Watch page embeds the room id and the live-update wiring.
+    watch = client.get(f"/watch/{sid}")
+    assert watch.status_code == 200
+    assert sid in watch.text
+    assert "/ws" in watch.text and "refreshState" in watch.text
+
+    # Board is empty until a map exists, then renders it.
+    assert client.get(f"/sessions/{sid}/board").json() == {"ascii": ""}
+    room = mgr.get(sid)
+    ctx = GMContext(ruleset=room.gm.ruleset, state=room.state, log=room.log)
+    execute_tool(ctx, "set_scene", {"title": "Hall"})
+    execute_tool(ctx, "create_map", {"name": "Hall", "width": 4, "height": 3})
+    ascii_board = client.get(f"/sessions/{sid}/board").json()["ascii"]
+    assert ascii_board and "\n" in ascii_board
+
+
 def test_vtt_export_endpoints():
     client = make_client()
     sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]

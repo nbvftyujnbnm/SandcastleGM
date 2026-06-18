@@ -196,14 +196,24 @@ direct control of the dice and state (and are all you need in referee mode):
 sandcastlegm serve --host 0.0.0.0 --port 8765
 ```
 
+Then open `http://localhost:8765/` in a browser: a self-contained spectator/play
+UI (no build step) lets you create or join a room and watch the live narration
+feed alongside a state panel — scene, characters with HP bars, initiative order,
+and the tactical map — updating in real time over the WebSocket. It also has an
+action bar, so it doubles as a lightweight player client. Each room is shareable
+at `/watch/{room_id}`.
+
 REST + WebSocket surface:
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/` | spectator/play web UI (create or join a room) |
+| `GET` | `/watch/{id}` | live room view (feed + state panel + action bar) |
 | `GET` | `/rulesets` | installed systems |
 | `POST` | `/sessions` | create a room (`{"ruleset_id": "sandcastle", "title": "..."}`) |
 | `GET` | `/sessions/{id}` | full game state |
 | `GET` | `/sessions/{id}/events` | event log (story so far) |
+| `GET` | `/sessions/{id}/board` | active map as ASCII (for the web UI) |
 | `POST` | `/sessions/{id}/characters` | add a player character |
 | `GET` | `/sessions/{id}/export/{cocofolia\|udonarium}` | download a VTT package |
 | `WS` | `/sessions/{id}/ws` | live play: send `{"type":"action","text":"...","actor_id":"..."}`, receive every event |
