@@ -171,6 +171,28 @@ TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "resolve_attack",
+        "description": (
+            "Resolve one attack end-to-end: roll to-hit (3d6 + attack bonus) vs the "
+            "target's defense, and on a hit roll damage and apply it to the target's "
+            "HP automatically. Prefer this over chaining roll_check + update_character "
+            "for combat. Provide attack_name for a monster's listed attack, or att and "
+            "damage explicitly."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "attacker_id": {"type": "string"},
+                "target_id": {"type": "string"},
+                "attack_name": {"type": "string", "description": "Named attack on the attacker's sheet."},
+                "att": {"type": "integer", "description": "Attack bonus, if not using a named attack."},
+                "damage": {"type": "string", "description": "Damage dice, e.g. '1d6+2'."},
+                "modifier": {"type": "integer", "description": "Situational to-hit modifier."},
+            },
+            "required": ["target_id"],
+        },
+    },
+    {
         "name": "update_character",
         "description": "Change a character's hit points and conditions (damage, healing, status).",
         "input_schema": {
@@ -412,6 +434,35 @@ def _spawn_monster(ctx: GMContext, ip: dict[str, Any]) -> str:
     return f"spawned {count}x {catalog[key]}: {ids}"
 
 
+def _resolve_attack(ctx: GMContext, ip: dict[str, Any]) -> str:
+    result = ctx.ruleset.resolve_attack(
+        ctx.state,
+        ip.get("attacker_id"),
+        ip["target_id"],
+        att=ip.get("att"),
+        damage=ip.get("damage"),
+        attack_name=ip.get("attack_name"),
+        modifier=int(ip.get("modifier", 0) or 0),
+    )
+    target = ctx.state.characters[ip["target_id"]]
+    downed = False
+    if result.hit and result.damage:
+        target.hp = max(0, target.hp - result.damage)
+        if target.hp <= 0 and "戦闘不能" not in target.conditions:
+            target.conditions.append("戦闘不能")
+            downed = True
+    suffix = f" → {target.name} hp {target.hp}/{target.max_hp}" + (" (戦闘不能)" if downed else "")
+    ctx.log.append(
+        Event(
+            type=EventType.ROLL,
+            text=result.describe() + suffix,
+            actor=result.attacker_id,
+            data={**result.to_dict(), "target_hp": target.hp, "target_max_hp": target.max_hp},
+        )
+    )
+    return json.dumps({**result.to_dict(), "target_hp": target.hp}, ensure_ascii=False)
+
+
 def _update_character(ctx: GMContext, ip: dict[str, Any]) -> str:
     char = ctx.state.characters.get(ip["character_id"])
     if char is None:
@@ -515,6 +566,7 @@ _HANDLERS = {
     "move_token": _move_token,
     "spawn_npc": _spawn_npc,
     "spawn_monster": _spawn_monster,
+    "resolve_attack": _resolve_attack,
     "update_character": _update_character,
     "roll_initiative": _roll_initiative,
     "set_turn_order": _set_turn_order,

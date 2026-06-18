@@ -7,6 +7,7 @@ third-party patches advertised through entry points, so that
 
 from sandcastlegm.rulesets.base import (
     AbilityDef,
+    AttackResult,
     CheckRequest,
     CheckResult,
     Ruleset,
@@ -21,6 +22,7 @@ registry.discover_plugins()
 
 __all__ = [
     "AbilityDef",
+    "AttackResult",
     "CheckRequest",
     "CheckResult",
     "Ruleset",
