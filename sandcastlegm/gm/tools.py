@@ -154,6 +154,23 @@ TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "spawn_monster",
+        "description": (
+            "Spawn a statted monster from the ruleset's bestiary by key (see the "
+            "ruleset guidance for keys). Optionally rename or spawn several. For a "
+            "creature not in the bestiary, use spawn_npc instead."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Bestiary key, e.g. brown_bear."},
+                "name": {"type": "string", "description": "Optional display name override."},
+                "count": {"type": "integer", "description": "How many to spawn (default 1)."},
+            },
+            "required": ["key"],
+        },
+    },
+    {
         "name": "update_character",
         "description": "Change a character's hit points and conditions (damage, healing, status).",
         "input_schema": {
@@ -370,6 +387,31 @@ def _spawn_npc(ctx: GMContext, ip: dict[str, Any]) -> str:
     return f"npc created: {char.id} (hp {char.hp})"
 
 
+def _spawn_monster(ctx: GMContext, ip: dict[str, Any]) -> str:
+    key = ip["key"]
+    count = max(1, int(ip.get("count", 1) or 1))
+    catalog = ctx.ruleset.monster_catalog()
+    if key not in catalog:
+        return f"error: unknown monster {key!r}; available: {sorted(catalog)}"
+    created = []
+    for i in range(count):
+        name = ip.get("name")
+        if name and count > 1:
+            name = f"{name}{i + 1}"
+        elif count > 1:
+            name = f"{catalog[key]}{i + 1}"
+        char = ctx.ruleset.create_monster(key, name=name)
+        ctx.state.add_character(char)
+        created.append(char)
+        ctx.log.append(Event(
+            type=EventType.SYSTEM,
+            text=f"モンスター出現: {char.name}（{char.id}, hp {char.hp}, 防御 {char.sheet.get('defense')}）",
+            data={"id": char.id, "hp": char.hp, "monster_key": key},
+        ))
+    ids = ", ".join(c.id for c in created)
+    return f"spawned {count}x {catalog[key]}: {ids}"
+
+
 def _update_character(ctx: GMContext, ip: dict[str, Any]) -> str:
     char = ctx.state.characters.get(ip["character_id"])
     if char is None:
@@ -472,6 +514,7 @@ _HANDLERS = {
     "place_token": _place_token,
     "move_token": _move_token,
     "spawn_npc": _spawn_npc,
+    "spawn_monster": _spawn_monster,
     "update_character": _update_character,
     "roll_initiative": _roll_initiative,
     "set_turn_order": _set_turn_order,

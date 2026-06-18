@@ -152,6 +152,15 @@ class Ruleset(ABC):
         )
         return order, desc
 
+    # --- bestiary (optional; systems without one inherit the empty default) ---
+    def monster_catalog(self) -> dict[str, str]:
+        """Map of ``monster_key -> display name`` the GM can spawn. Empty by default."""
+        return {}
+
+    def create_monster(self, key: str, name: str | None = None) -> Character:
+        """Create a statted monster from the bestiary. Raises ``KeyError`` if absent."""
+        raise KeyError(key)
+
     # --- knowledge & voice ----------------------------------------------------
     @abstractmethod
     def knowledge_text(self) -> str:

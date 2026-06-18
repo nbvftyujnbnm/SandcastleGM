@@ -58,7 +58,7 @@ Three requirements shaped the architecture:
 | Module | What it is | Depends on |
 |---|---|---|
 | `sandcastlegm.core` | Dice engine, game state (scenes, maps, tokens, characters, turn order), event log | nothing |
-| `sandcastlegm.rulesets` | The `Ruleset` patch interface, a registry, and the Sandcastle implementation | core |
+| `sandcastlegm.rulesets` | The `Ruleset` patch interface, a registry, and the Sandcastle implementation (incl. a transcribed bestiary the GM can `spawn_monster` from) | core |
 | `sandcastlegm.gm` | The AI Game Master: vendor-neutral tool-use loop, tool surface, prompt assembly, and LLM providers (OpenRouter / Anthropic) | core, rulesets, `openai`* |
 | `sandcastlegm.vtt` | Exporters to Udonarium (XML/zip) and Cocofolia (clipboard JSON) | core |
 | `sandcastlegm.server` | Multiplayer WebSocket session server | gm, `fastapi`* |

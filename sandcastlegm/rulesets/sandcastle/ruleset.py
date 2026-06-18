@@ -136,6 +136,36 @@ class SandcastleRuleset(Ruleset):
             breakdown=breakdown,
         )
 
+    # --- bestiary -------------------------------------------------------------
+    def monster_catalog(self) -> dict[str, str]:
+        return {key: m["name"] for key, m in data.MONSTERS.items()}
+
+    def create_monster(self, key: str, name: str | None = None) -> Character:
+        m = data.MONSTERS[key]  # KeyError if unknown
+        level = int(m["level"])
+        sheet = {
+            "level": level,
+            "abilities": dict(m["abilities"]),
+            "skills": [],
+            "bab": -(-level // 2),
+            "defense": m.get("defense"),
+            "pp": m.get("pp", 0),
+            "move": m.get("move", ""),
+            "resist": dict(m.get("resist", {})),
+            "vulnerability": m.get("vulnerability"),
+            "immune": m.get("immune"),
+            "attacks": [dict(a) for a in m.get("attacks", [])],
+            "monster_key": key,
+            "note": m.get("note", ""),
+        }
+        return Character(
+            name=name or m["name"],
+            is_pc=False,
+            sheet=sheet,
+            hp=int(m["hp"]),
+            max_hp=int(m["hp"]),
+        )
+
     # --- knowledge & voice ----------------------------------------------------
     def knowledge_text(self) -> str:
         try:
@@ -156,6 +186,7 @@ class SandcastleRuleset(Ruleset):
         tn_lines = "\n".join(
             f"  - {label}: TN {tn}" for label, tn in data.TARGET_NUMBER_GUIDANCE.items()
         )
+        bestiary = "、".join(f"{m['name']}({k}, Lv{m['level']})" for k, m in data.MONSTERS.items())
         return (
             "You are running Sandcastle, a light fantasy-adventure TRPG.\n"
             "Core mechanic: every uncertain action is an ability check — roll 3d6, "
@@ -167,6 +198,8 @@ class SandcastleRuleset(Ruleset):
             f"Skills (a trained one adds the actor's level when relevant): {skill_list}\n\n"
             "Difficulty guidance — 3d6 lands in 8..13 two-thirds of the time:\n"
             f"{tn_lines}\n\n"
+            f"Bestiary (use spawn_monster with the key): {bestiary}. "
+            "For creatures not listed, use spawn_npc.\n\n"
             "Tone: collaborative and fun, like cooperative make-believe. Failure "
             "should be interesting, not punishing. Describe vivid scenes, voice the "
             "NPCs, and let the players drive."
