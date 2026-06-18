@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 from sandcastlegm.gm.providers.base import (
@@ -38,12 +39,24 @@ class OpenAICompatibleProvider(LLMProvider):
         base_url: str | None = None,
         extra_headers: dict[str, str] | None = None,
         client: Any | None = None,
+        max_retries: int = 4,
+        retry_base_delay: float = 2.0,
+        min_interval: float | None = None,
     ) -> None:
         self.model = self._resolve_model(
             model or os.environ.get("SANDCASTLEGM_MODEL") or self.default_model
         )
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # Resilience: retry rate limits / transient errors with backoff, and
+        # optionally throttle to a minimum gap between requests (helps stay under
+        # free-tier RPM caps).
+        self.max_retries = max_retries
+        self.retry_base_delay = retry_base_delay
+        if min_interval is None:
+            min_interval = float(os.environ.get("SANDCASTLEGM_MIN_REQUEST_INTERVAL", "0") or 0)
+        self.min_interval = min_interval
+        self._last_call = 0.0
         self._messages: list[dict[str, Any]] = []
         self._client = (
             client if client is not None else self._make_client(api_key, base_url, extra_headers)
@@ -97,6 +110,38 @@ class OpenAICompatibleProvider(LLMProvider):
                 {"role": "tool", "tool_call_id": r.id, "content": r.content}
             )
 
+    def _create(self, **kwargs: Any) -> Any:
+        """Call chat.completions.create with throttling + retry/backoff."""
+        from openai import (
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            RateLimitError,
+        )
+
+        transient = (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)
+
+        if self.min_interval > 0:
+            gap = self.min_interval - (time.monotonic() - self._last_call)
+            if gap > 0:
+                time.sleep(gap)
+
+        delay = self.retry_base_delay
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                self._last_call = time.monotonic()
+                return self._client.chat.completions.create(**kwargs)
+            except transient as exc:  # noqa: PERF203
+                last_exc = exc
+                if attempt >= self.max_retries:
+                    break
+                retry_after = _retry_after_seconds(exc)
+                time.sleep(retry_after if retry_after is not None else min(delay, 60.0))
+                delay *= 2
+        assert last_exc is not None
+        raise last_exc
+
     def generate(self, system: str, tools: list[dict[str, Any]]) -> LLMResponse:
         oai_tools = [
             {
@@ -110,7 +155,7 @@ class OpenAICompatibleProvider(LLMProvider):
             for t in tools
         ]
         messages = [{"role": "system", "content": system}, *self._messages]
-        response = self._client.chat.completions.create(
+        response = self._create(
             model=self.model,
             messages=messages,
             tools=oai_tools,
@@ -145,3 +190,17 @@ class OpenAICompatibleProvider(LLMProvider):
 
         self._messages.append(assistant)
         return LLMResponse(text=msg.content or "", tool_calls=calls)
+
+
+def _retry_after_seconds(exc: Any) -> float | None:
+    """Best-effort extraction of a server-suggested retry delay (seconds)."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers:
+        value = headers.get("retry-after")
+        if value:
+            try:
+                return float(value)
+            except ValueError:
+                return None
+    return None

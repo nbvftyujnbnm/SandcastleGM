@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from sandcastlegm.gm.providers import (
     AnthropicProvider,
     GeminiProvider,
@@ -161,6 +163,61 @@ def test_model_presets_resolve():
     assert resolve_model("mistralai/mistral-medium-3.1") == "mistralai/mistral-medium-3.1"
     assert resolve_model(None) is None
     assert RECOMMENDED_OPENROUTER_MODELS[0].key == "gemma3-27b"
+
+
+def test_provider_retries_on_rate_limit():
+    import httpx
+    import openai
+
+    class _RateThenOK:
+        def __init__(self):
+            self.chat = self
+            self.completions = self
+            self.calls = 0
+
+        def create(self, **kw):
+            self.calls += 1
+            if self.calls < 3:
+                raise openai.RateLimitError(
+                    "rate limited",
+                    response=httpx.Response(429, request=httpx.Request("POST", "http://x")),
+                    body=None,
+                )
+            return _FakeResponse(_FakeMessage(content="recovered"))
+
+    fake = _RateThenOK()
+    # retry_base_delay=0 keeps the test instant.
+    provider = OpenRouterProvider(model="m", client=fake, max_retries=5, retry_base_delay=0)
+    provider.add_user("go")
+    resp = provider.generate("SYS", TOOL_SPECS)
+    assert resp.text == "recovered"
+    assert fake.calls == 3  # two 429s, then success
+
+
+def test_provider_gives_up_after_max_retries():
+    import httpx
+    import openai
+
+    class _AlwaysRate:
+        def __init__(self):
+            self.chat = self
+            self.completions = self
+            self.calls = 0
+
+        def create(self, **kw):
+            self.calls += 1
+            raise openai.RateLimitError(
+                "rate limited",
+                response=httpx.Response(429, request=httpx.Request("POST", "http://x")),
+                body=None,
+            )
+
+    fake = _AlwaysRate()
+    provider = OpenRouterProvider(model="m", client=fake, max_retries=2, retry_base_delay=0)
+    provider.add_user("go")
+    with pytest.raises(openai.RateLimitError):
+        provider.generate("SYS", TOOL_SPECS)
+    assert fake.calls == 3  # initial + 2 retries
 
 
 def test_openrouter_resolves_preset_key():
