@@ -91,6 +91,51 @@ class CheckResult:
         }
 
 
+@dataclass
+class AttackResult:
+    """The outcome of resolving an attack (to-hit, and damage if it lands)."""
+
+    attacker_id: str | None
+    target_id: str
+    attack_name: str | None
+    att_bonus: int
+    attack_roll: RollResult
+    att_total: int
+    defense: int
+    hit: bool
+    damage_expr: str | None = None
+    damage_roll: RollResult | None = None
+    damage: int = 0
+    dtype: str | None = None
+
+    def describe(self) -> str:
+        head = (
+            f"{self.attack_name or 'attack'}: {self.attack_roll.describe()} "
+            f"+att{self.att_bonus:+d} = {self.att_total} vs 防御{self.defense} -> "
+            + ("命中" if self.hit else "外れ")
+        )
+        if self.hit and self.damage_roll is not None:
+            head += f" / ダメージ {self.damage_roll.describe()} = {self.damage}"
+            if self.dtype:
+                head += f"（{self.dtype}）"
+        return head
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "attacker_id": self.attacker_id,
+            "target_id": self.target_id,
+            "attack_name": self.attack_name,
+            "att_bonus": self.att_bonus,
+            "att_total": self.att_total,
+            "defense": self.defense,
+            "hit": self.hit,
+            "damage": self.damage,
+            "dtype": self.dtype,
+            "attack_roll": self.attack_roll.describe(),
+            "damage_roll": self.damage_roll.describe() if self.damage_roll else None,
+        }
+
+
 class Ruleset(ABC):
     """Base class for a playable system. Subclass it to add a new game."""
 
@@ -151,6 +196,72 @@ class Ruleset(ABC):
             f" → {'PC' if pcs_first else '敵'}側が先攻"
         )
         return order, desc
+
+    def resolve_attack(
+        self,
+        state: Any,
+        attacker_id: str | None,
+        target_id: str,
+        *,
+        att: int | None = None,
+        damage: str | None = None,
+        attack_name: str | None = None,
+        modifier: int = 0,
+    ) -> AttackResult:
+        """Resolve an attack: roll 3d6 + attack bonus against the target's defense,
+        and roll damage on a hit. Does not mutate state (the caller applies HP).
+
+        Resolution order for the attack bonus and damage:
+        the explicit ``att``/``damage`` args, else a matching named attack on the
+        attacker's monster sheet, else the attacker's ``bab`` and ``1d6``.
+        Defense uses the target's sheet ``defense``, else ``10 + DEX``.
+        """
+        chars = getattr(state, "characters", {})
+        attacker = chars.get(attacker_id) if attacker_id else None
+        target = chars.get(target_id)
+        if target is None:
+            raise ValueError(f"unknown target {target_id!r}")
+
+        a_sheet = attacker.sheet if attacker else {}
+        if (att is None or damage is None) and attack_name:
+            for atk in a_sheet.get("attacks", []):
+                if atk.get("name") == attack_name:
+                    att = atk.get("att") if att is None else att
+                    damage = damage or atk.get("damage")
+                    break
+        dtype = None
+        for atk in a_sheet.get("attacks", []):
+            if atk.get("name") == attack_name:
+                dtype = atk.get("dtype")
+        if att is None:
+            att = int(a_sheet.get("bab", 0))
+        damage_expr = damage or "1d6"
+
+        t_sheet = target.sheet
+        defense = t_sheet.get("defense")
+        if defense is None:
+            defense = 10 + int(t_sheet.get("abilities", {}).get("DEX", 0))
+        defense = int(defense)
+
+        roll = self.roller.roll("3d6")
+        att_total = roll.total + int(att) + int(modifier)
+        hit = att_total >= defense
+
+        dmg_roll = self.roller.roll(damage_expr) if hit else None
+        return AttackResult(
+            attacker_id=attacker_id,
+            target_id=target_id,
+            attack_name=attack_name,
+            att_bonus=int(att) + int(modifier),
+            attack_roll=roll,
+            att_total=att_total,
+            defense=defense,
+            hit=hit,
+            damage_expr=damage_expr if hit else None,
+            damage_roll=dmg_roll,
+            damage=dmg_roll.total if dmg_roll else 0,
+            dtype=dtype,
+        )
 
     # --- bestiary (optional; systems without one inherit the empty default) ---
     def monster_catalog(self) -> dict[str, str]:
