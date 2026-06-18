@@ -23,6 +23,14 @@ from sandcastlegm.core.state import GameState
 from sandcastlegm.gm.engine import AIGameMaster
 from sandcastlegm.rulesets import registry
 
+# Imported at module scope so FastAPI can resolve the stringized ``WebSocket``
+# annotation (this file uses ``from __future__ import annotations``) against the
+# module globals. Guarded so the module still imports without the server extra.
+try:
+    from fastapi import WebSocket, WebSocketDisconnect
+except ImportError:  # pragma: no cover - server extra not installed
+    WebSocket = WebSocketDisconnect = None  # type: ignore[assignment,misc]
+
 
 @dataclass
 class Room:
@@ -30,7 +38,9 @@ class Room:
 
     id: str
     gm: AIGameMaster
-    subscribers: list[Any] = field(default_factory=list)  # asyncio.Queue per client
+    # (queue, loop) per connected client. The loop is captured so we can wake a
+    # waiting consumer from the worker thread that runs the (blocking) GM turn.
+    subscribers: list[tuple[Any, Any]] = field(default_factory=list)
 
     @property
     def state(self) -> GameState:
@@ -40,19 +50,20 @@ class Room:
     def log(self) -> EventLog:
         return self.gm.log
 
-    def subscribe(self) -> "asyncio.Queue[dict[str, Any]]":
+    def subscribe(self, loop: Any) -> "asyncio.Queue[dict[str, Any]]":
         queue: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
-        self.subscribers.append(queue)
+        self.subscribers.append((queue, loop))
         return queue
 
     def unsubscribe(self, queue: "asyncio.Queue[dict[str, Any]]") -> None:
-        if queue in self.subscribers:
-            self.subscribers.remove(queue)
+        self.subscribers = [(q, lp) for (q, lp) in self.subscribers if q is not queue]
 
     def broadcast(self, event: Event) -> None:
+        # Called from the event loop or from a GM worker thread; schedule the put
+        # on each consumer's loop so it is thread-safe and wakes the consumer.
         payload = {"kind": "event", "event": event.to_dict()}
-        for queue in list(self.subscribers):
-            queue.put_nowait(payload)
+        for queue, loop in list(self.subscribers):
+            loop.call_soon_threadsafe(queue.put_nowait, payload)
 
 
 class SessionManager:
@@ -87,7 +98,7 @@ class SessionManager:
 
 def create_app(manager: SessionManager | None = None) -> Any:
     """Build the FastAPI app. Requires the ``server`` extra (fastapi, uvicorn)."""
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI
     from fastapi.responses import JSONResponse, Response
     from starlette.concurrency import run_in_threadpool
 
@@ -157,7 +168,7 @@ def create_app(manager: SessionManager | None = None) -> Any:
             await websocket.close(code=4004)
             return
 
-        queue = room.subscribe()
+        queue = room.subscribe(asyncio.get_running_loop())
         # Send the backlog so a late joiner sees the story so far.
         await websocket.send_json({"kind": "backlog", "events": room.log.to_list()})
 
