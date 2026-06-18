@@ -41,6 +41,10 @@ class Position:
     def to_dict(self) -> dict[str, Any]:
         return {"x": self.x, "y": self.y}
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Position":
+        return cls(x=int(d["x"]), y=int(d["y"]))
+
 
 @dataclass
 class Token:
@@ -61,6 +65,20 @@ class Token:
         d["kind"] = self.kind.value
         d["position"] = self.position.to_dict()
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Token":
+        return cls(
+            name=d["name"],
+            position=Position.from_dict(d["position"]),
+            kind=TokenKind(d.get("kind", "marker")),
+            id=d.get("id", _new_id("tok")),
+            size=int(d.get("size", 1)),
+            glyph=d.get("glyph", "●"),
+            color=d.get("color", "#888888"),
+            character_id=d.get("character_id"),
+            hidden=bool(d.get("hidden", False)),
+        )
 
 
 @dataclass
@@ -117,6 +135,19 @@ class MapGrid:
             "tokens": {tid: t.to_dict() for tid, t in self.tokens.items()},
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "MapGrid":
+        grid = cls(
+            name=d.get("name", "Map"),
+            width=int(d.get("width", 20)),
+            height=int(d.get("height", 20)),
+            cell_size_m=float(d.get("cell_size_m", 1.5)),
+            terrain=dict(d.get("terrain", {})),
+            id=d.get("id", _new_id("map")),
+        )
+        grid.tokens = {tid: Token.from_dict(t) for tid, t in d.get("tokens", {}).items()}
+        return grid
+
 
 @dataclass
 class Scene:
@@ -135,6 +166,10 @@ class Scene:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Scene":
+        return cls(**d)
+
 
 @dataclass
 class Character:
@@ -152,6 +187,10 @@ class Character:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Character":
+        return cls(**d)
 
 
 @dataclass
@@ -177,6 +216,11 @@ class TurnOrder:
 
     def to_dict(self) -> dict[str, Any]:
         return {"order": list(self.order), "round": self.round, "index": self.index}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "TurnOrder":
+        return cls(order=list(d.get("order", [])), round=int(d.get("round", 0)),
+                   index=int(d.get("index", 0)))
 
 
 @dataclass
@@ -236,3 +280,17 @@ class GameState:
             "turn_order": self.turn_order.to_dict(),
             "notes": dict(self.notes),
         }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "GameState":
+        return cls(
+            ruleset_id=d["ruleset_id"],
+            title=d.get("title", "Untitled Session"),
+            characters={cid: Character.from_dict(c) for cid, c in d.get("characters", {}).items()},
+            maps={mid: MapGrid.from_dict(m) for mid, m in d.get("maps", {}).items()},
+            scenes=[Scene.from_dict(s) for s in d.get("scenes", [])],
+            current_scene_id=d.get("current_scene_id"),
+            turn_order=TurnOrder.from_dict(d.get("turn_order", {})),
+            notes=dict(d.get("notes", {})),
+            id=d.get("id", _new_id("game")),
+        )

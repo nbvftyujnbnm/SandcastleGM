@@ -44,6 +44,17 @@ class Event:
             "data": self.data,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Event":
+        return cls(
+            type=EventType(d["type"]),
+            text=d.get("text", ""),
+            actor=d.get("actor"),
+            data=dict(d.get("data", {})),
+            id=d.get("id", uuid.uuid4().hex[:12]),
+            ts=float(d.get("ts", time.time())),
+        )
+
 
 class EventLog:
     """An append-only log with optional subscribers for live broadcast."""
@@ -74,3 +85,7 @@ class EventLog:
 
     def to_list(self) -> list[dict[str, Any]]:
         return [e.to_dict() for e in self._events]
+
+    def load(self, events: list[dict[str, Any]]) -> None:
+        """Restore events from serialised form without notifying subscribers."""
+        self._events = [Event.from_dict(e) for e in events]

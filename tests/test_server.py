@@ -83,6 +83,28 @@ def test_spectator_pages_and_board():
     assert ascii_board and "\n" in ascii_board
 
 
+def test_save_and_load_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("SANDCASTLEGM_SAVE_DIR", str(tmp_path))
+    mgr = SessionManager()
+    client = TestClient(create_app(mgr))
+
+    sid = client.post("/sessions", json={"ruleset_id": "sandcastle", "title": "保存"}).json()["id"]
+    client.post(f"/sessions/{sid}/characters", json={"name": "Aria"})
+
+    saved = client.post(f"/sessions/{sid}/save").json()
+    assert "saved" in saved and saved["saved"].endswith(".json")
+
+    # Load it back into a (fresh) manager-backed app.
+    loaded = client.post("/sessions/load", json={"path": saved["saved"]}).json()
+    assert loaded["id"] == sid  # same game id preserved
+    state = client.get(f"/sessions/{loaded['id']}").json()
+    assert state["title"] == "保存"
+    assert len(state["characters"]) == 1
+
+    assert client.post("/sessions/load", json={"path": str(tmp_path / "nope.json")}).status_code == 404
+    assert client.post("/sessions/load", json={}).status_code == 400
+
+
 def test_vtt_export_endpoints():
     client = make_client()
     sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]

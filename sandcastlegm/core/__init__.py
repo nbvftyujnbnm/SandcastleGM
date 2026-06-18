@@ -7,6 +7,13 @@ from sandcastlegm.core.dice import (
     sandcastle_roller,
 )
 from sandcastlegm.core.events import Event, EventLog, EventType
+from sandcastlegm.core.persistence import (
+    from_payload,
+    load_session,
+    save_session,
+    save_session_to_dir,
+    to_payload,
+)
 from sandcastlegm.core.state import (
     Character,
     GameState,
@@ -26,6 +33,11 @@ __all__ = [
     "Event",
     "EventLog",
     "EventType",
+    "save_session",
+    "save_session_to_dir",
+    "load_session",
+    "to_payload",
+    "from_payload",
     "Character",
     "GameState",
     "MapGrid",

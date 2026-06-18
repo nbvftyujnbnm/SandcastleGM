@@ -33,6 +33,7 @@ Commands:
   /sheet                 show your character sheet
   /state                 show the current scene, characters, and map
   /export VTT PATH       export the session (VTT = cocofolia | udonarium)
+  /save [PATH]           save the session (resume later with --load PATH)
   /help                  show this help
   /quit                  leave
 """
@@ -160,16 +161,29 @@ def cmd_play(args: argparse.Namespace) -> int:
         print(f"Unknown ruleset {args.ruleset!r}. Try: {', '.join(registry.available())}")
         return 1
 
-    ruleset = registry.create(args.ruleset, rng=random.Random())
-    state = GameState(ruleset_id=args.ruleset, title=args.title)
     log = EventLog()
+    if getattr(args, "load", None):
+        from sandcastlegm.core.persistence import load_session
+        loaded_state, loaded_log = load_session(args.load)
+        state = loaded_state
+        log.load(loaded_log.to_list())
+        ruleset = registry.create(state.ruleset_id, rng=random.Random())
+        print(f"(resumed {args.load}: {len(log.events)} events, {len(state.characters)} characters)")
+    else:
+        ruleset = registry.create(args.ruleset, rng=random.Random())
+        state = GameState(ruleset_id=args.ruleset, title=args.title)
+
     log.subscribe(_print_event)
     gm = AIGameMaster(ruleset, state, log, model=getattr(args, "model", None))
 
-    # Quick character creation.
-    name = input("Your character's name [Hero]: ").strip() or "Hero"
-    pc = ruleset.new_character(name, controller="local")
-    state.add_character(pc)
+    # Use an existing PC when resuming; otherwise quick character creation.
+    pcs = state.player_characters()
+    if pcs:
+        pc = pcs[0]
+    else:
+        name = input("Your character's name [Hero]: ").strip() or "Hero"
+        pc = ruleset.new_character(name, controller="local")
+        state.add_character(pc)
 
     print()
     print(f"=== {state.title} — {ruleset.name} ===")
@@ -179,7 +193,7 @@ def cmd_play(args: argparse.Namespace) -> int:
     )
     print(f"AI GM: {status}")
     print(HELP)
-    if gm.available:
+    if gm.available and state.current_scene is None:
         gm.turn("(The players are ready. Open the adventure with an evocative first scene.)")
 
     ctx = GMContext(ruleset=ruleset, state=state, log=log)
@@ -208,6 +222,11 @@ def cmd_play(args: argparse.Namespace) -> int:
             _do_check(ruleset, state, ctx, pc, line)
         elif line.startswith("/export"):
             _do_export(state, line)
+        elif line.startswith("/save"):
+            from sandcastlegm.core.persistence import save_session, save_session_to_dir
+            parts = line.split(maxsplit=1)
+            path = save_session(state, log, parts[1]) if len(parts) > 1 else save_session_to_dir(state, log)
+            print(f"  saved to {path}  (resume: sandcastlegm play --load {path})")
         else:
             turn = gm.turn(line, actor_id=pc.id)
             if turn.degraded:
@@ -279,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--ruleset", default="sandcastle")
     play.add_argument("--title", default="A Sandcastle Adventure")
     play.add_argument("--model", default=None, help="OpenRouter model id or preset key (see `models`)")
+    play.add_argument("--load", default=None, help="resume a saved session JSON (see /save)")
     play.set_defaults(func=cmd_play)
 
     probe = sub.add_parser("probe", help="score models as GMs (needs OPENROUTER_API_KEY)")

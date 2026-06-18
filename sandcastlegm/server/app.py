@@ -88,6 +88,24 @@ class SessionManager:
             raise KeyError(room_id)
         return self._rooms[room_id]
 
+    def save(self, room_id: str, directory: str | None = None) -> str:
+        from sandcastlegm.core.persistence import DEFAULT_DIR, save_session_to_dir
+
+        room = self.get(room_id)
+        return save_session_to_dir(room.state, room.log, directory or DEFAULT_DIR)
+
+    def restore(self, path: str) -> Room:
+        """Load a saved session into a new live room and register it."""
+        from sandcastlegm.core.persistence import load_session
+
+        state, log = load_session(path)
+        ruleset = registry.create(state.ruleset_id, rng=random.Random())
+        gm = AIGameMaster(ruleset, state, log)
+        room = Room(id=state.id, gm=gm)
+        log.subscribe(room.broadcast)
+        self._rooms[room.id] = room
+        return room
+
     def list(self) -> list[dict[str, Any]]:
         return [
             {"id": r.id, "title": r.state.title, "ruleset": r.state.ruleset_id,
@@ -162,6 +180,25 @@ def create_app(manager: SessionManager | None = None) -> Any:
         )
         room.state.add_character(char)
         return {"id": char.id}
+
+    @app.post("/sessions/{room_id}/save")
+    def save_session_route(room_id: str) -> Any:
+        try:
+            path = mgr.save(room_id)
+        except KeyError:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return {"saved": path}
+
+    @app.post("/sessions/load")
+    def load_session_route(body: dict[str, Any]) -> Any:
+        path = body.get("path")
+        if not path:
+            return JSONResponse({"error": "path required"}, status_code=400)
+        try:
+            room = mgr.restore(path)
+        except (FileNotFoundError, KeyError):
+            return JSONResponse({"error": "save not found"}, status_code=404)
+        return {"id": room.id, "ai_gm": "on" if room.gm.available else "referee-only"}
 
     @app.get("/sessions/{room_id}/export/{vtt}")
     def export_vtt(room_id: str, vtt: str) -> Any:
