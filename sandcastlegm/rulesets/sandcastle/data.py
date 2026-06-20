@@ -119,6 +119,39 @@ MONSTERS: dict[str, dict] = {
             {"name": "毒の噛みつき", "action": "主/割", "att": 5, "reach": "近接", "damage": "1d6+2", "dtype": "緑エネルギー"},
         ],
     },
+    "homunculus": {
+        "name": "ホムンクルス",
+        "level": 0, "defense": 13, "hp": 3, "pp": 3, "move": "8 m",
+        "abilities": {"STR": -3, "DEX": 2, "CON": -2, "PER": 1, "WIL": 0, "CHA": 0},
+        "resist": {"赤青": 1, "緑黄": 1, "橙紫": 1, "ヘックス": -1},
+        "vulnerability": "橙", "immune": "紫",
+        "attacks": [
+            {"name": "爪", "action": "主/割", "att": -1, "reach": "近接", "damage": "1", "dtype": "通常"},
+        ],
+        "note": "低レベルの使い魔。エネルギー鎧（紫）を使う。",
+    },
+    "cockatrice": {
+        "name": "コカトリス",
+        "level": 2, "defense": 14, "hp": 20, "pp": 6, "move": "10 m",
+        "abilities": {"STR": 0, "DEX": 1, "CON": 1, "PER": 2, "WIL": 3, "CHA": 3},
+        "resist": {"赤青": 3, "緑黄": 3, "橙紫": 4, "ヘックス": 4},
+        "vulnerability": "黄",
+        "attacks": [
+            {"name": "噛みつき", "action": "主/割", "att": 2, "reach": "近接", "damage": "1d6", "dtype": "緑エネルギー"},
+            {"name": "2爪", "action": "主/割", "att": 1, "reach": "近接", "damage": "1d3+1", "dtype": "通常"},
+        ],
+        "note": "緑に耐性。技能 魔術+2。石化の睨みを持つ。",
+    },
+    "polar_bear": {
+        "name": "シロクマ",
+        "level": 4, "defense": 15, "hp": 68, "pp": 5, "move": "14 m",
+        "abilities": {"STR": 6, "DEX": 1, "CON": 3, "PER": 1, "WIL": 0, "CHA": 3},
+        "resist": {"赤青": 3, "緑黄": 5, "橙紫": 2, "ヘックス": 2},
+        "attacks": [
+            {"name": "2つの爪", "action": "主/割", "att": 8, "reach": "近接", "damage": "2d6+6", "dtype": "通常"},
+        ],
+        "note": "大型（2マス）。複数回攻撃：1度の攻撃行動で2回の爪。",
+    },
     "chimera": {
         "name": "キマイラ",
         "level": 4, "defense": 16, "hp": 50, "pp": 8, "move": "14 m",
