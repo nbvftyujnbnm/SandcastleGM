@@ -155,6 +155,17 @@ ARMOR: dict[str, dict] = {
 }
 SHIELD_BONUS = 1
 
+# Hexes / status effects with their default modifiers. ``check`` applies to ability
+# checks the afflicted makes, ``attack`` to its attack rolls, ``defense`` to its
+# defense. Magnitudes are a reasonable default; the GM can override per cast.
+HEXES: dict[str, dict[str, int]] = {
+    "攻撃弱体ヘックス": {"attack": -2},
+    "防御弱体ヘックス": {"defense": -2},
+    "妨害ヘックス": {"check": -2},
+    "祝福": {"check": 2},
+    "守りの祝福": {"defense": 2},
+}
+
 # Energy damage colours and the ability that resists each pair.
 ENERGY_RESISTANCE: dict[str, str] = {
     "赤青": "DEX",  # fire / cold

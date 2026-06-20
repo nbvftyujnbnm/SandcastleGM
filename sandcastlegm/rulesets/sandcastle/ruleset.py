@@ -132,6 +132,12 @@ class SandcastleRuleset(Ruleset):
                 breakdown.append(f"{label}{value:+d}")
             total += value
 
+        # Active status effects (hexes, buffs) that modify checks.
+        effect_mod = self.effect_modifier(sheet, "check")
+        if effect_mod:
+            breakdown.append(f"状態効果{effect_mod:+d}")
+            total += effect_mod
+
         tn = request.target_number if request.target_number is not None else self.default_target_number
         margin = total - tn
         success = margin >= 0
@@ -149,6 +155,9 @@ class SandcastleRuleset(Ruleset):
             fumble=fumble,
             breakdown=breakdown,
         )
+
+    def hex_catalog(self) -> dict[str, dict[str, int]]:
+        return {k: dict(v) for k, v in data.HEXES.items()}
 
     # --- bestiary -------------------------------------------------------------
     def monster_catalog(self) -> dict[str, str]:
@@ -214,6 +223,8 @@ class SandcastleRuleset(Ruleset):
             f"{tn_lines}\n\n"
             f"Bestiary (use spawn_monster with the key): {bestiary}. "
             "For creatures not listed, use spawn_npc.\n\n"
+            f"Status effects / hexes (use apply_effect with hex=): {'、'.join(data.HEXES)}. "
+            "Their modifiers apply automatically to checks/attacks/defense.\n\n"
             "Tone: collaborative and fun, like cooperative make-believe. Failure "
             "should be interesting, not punishing. Describe vivid scenes, voice the "
             "NPCs, and let the players drive."
