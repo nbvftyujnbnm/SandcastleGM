@@ -68,6 +68,7 @@ class SandcastleRuleset(Ruleset):
         con = abilities.get("CON", 0)
         # 最大hp = (戦闘様式の基礎 + 耐久力) × レベル
         max_hp = max(1, (base_hp + con) * level)
+        max_pp = 1 + level  # 最大pp = 1 + レベル
 
         bab = -(-level // 2)  # 基礎攻撃ボーナス = レベルの半分（切り上げ）
 
@@ -92,6 +93,8 @@ class SandcastleRuleset(Ruleset):
             "armor": armor_key,
             "shield": shield,
             "defense": defense,
+            "pp": max_pp,
+            "max_pp": max_pp,
             "xp": 0,
         }
         return Character(
