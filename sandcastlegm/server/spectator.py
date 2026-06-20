@@ -42,6 +42,10 @@ INDEX_HTML = """<!doctype html>
   <input id="rid" placeholder="game_xxxxxxxx" style="width:70%">
   <button onclick="join()">入室</button>
 </div>
+<div class="card">
+  <h2 style="font-size:1.1rem">稼働中の卓</h2>
+  <ul id="rooms" style="list-style:none;padding:0;margin:0"><li style="color:#6b7280">読み込み中…</li></ul>
+</div>
 <script>
 async function create() {
   const r = await fetch('/sessions', {method:'POST', headers:{'content-type':'application/json'},
@@ -54,6 +58,20 @@ function join() {
   const id = document.getElementById('rid').value.trim();
   if (id) location.href = '/watch/' + id;
 }
+async function loadRooms() {
+  try {
+    const rooms = await (await fetch('/sessions')).json();
+    const ul = document.getElementById('rooms');
+    ul.innerHTML = rooms.length ? rooms.map(r =>
+      '<li style="padding:6px 0;border-top:1px solid #2c313c">' +
+      '<a href="/watch/' + r.id + '">' + esc(r.title) + '</a>' +
+      ' <small style="color:#9aa4b2">' + esc(r.ruleset) + ' · ' + r.players + '人 · ' + r.id + '</small></li>'
+    ).join('') : '<li style="color:#6b7280">まだありません</li>';
+  } catch (e) { /* server may be momentarily unavailable */ }
+}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+loadRooms();
+setInterval(loadRooms, 5000);
 </script>
 </body></html>"""
 

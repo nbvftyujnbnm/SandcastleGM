@@ -64,8 +64,15 @@ def test_spectator_pages_and_board():
     assert idx.status_code == 200
     assert "SandcastleGM" in idx.text
     assert "text/html" in idx.headers["content-type"]
+    assert "loadRooms" in idx.text  # lobby room list
+
+    # The /sessions list (consumed by the lobby) reflects created rooms.
+    before = len(client.get("/sessions").json())
 
     sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
+    rooms = client.get("/sessions").json()
+    assert len(rooms) == before + 1
+    assert any(r["id"] == sid and "players" in r for r in rooms)
 
     # Watch page embeds the room id and the live-update wiring.
     watch = client.get(f"/watch/{sid}")
