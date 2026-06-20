@@ -241,10 +241,11 @@ class Ruleset(ABC):
         defense = t_sheet.get("defense")
         if defense is None:
             defense = 10 + int(t_sheet.get("abilities", {}).get("DEX", 0))
-        defense = int(defense)
+        defense = int(defense) + self.effect_modifier(t_sheet, "defense")
 
+        att_mod = int(modifier) + self.effect_modifier(a_sheet, "attack")
         roll = self.roller.roll("3d6")
-        att_total = roll.total + int(att) + int(modifier)
+        att_total = roll.total + int(att) + att_mod
         hit = att_total >= defense
 
         dmg_roll = self.roller.roll(damage_expr) if hit else None
@@ -252,7 +253,7 @@ class Ruleset(ABC):
             attacker_id=attacker_id,
             target_id=target_id,
             attack_name=attack_name,
-            att_bonus=int(att) + int(modifier),
+            att_bonus=int(att) + att_mod,
             attack_roll=roll,
             att_total=att_total,
             defense=defense,
@@ -262,6 +263,19 @@ class Ruleset(ABC):
             damage=dmg_roll.total if dmg_roll else 0,
             dtype=dtype,
         )
+
+    @staticmethod
+    def effect_modifier(sheet: dict[str, Any], key: str) -> int:
+        """Sum a modifier (``check`` / ``attack`` / ``defense``) over a sheet's
+        active status effects (``sheet["effects"]`` = list of ``{name, mods, ...}``)."""
+        total = 0
+        for effect in sheet.get("effects", []) or []:
+            total += int((effect.get("mods") or {}).get(key, 0))
+        return total
+
+    def hex_catalog(self) -> dict[str, dict[str, int]]:
+        """Named status effects -> default modifier dict. Empty by default."""
+        return {}
 
     # --- bestiary (optional; systems without one inherit the empty default) ---
     def monster_catalog(self) -> dict[str, str]:

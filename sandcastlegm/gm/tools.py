@@ -193,6 +193,39 @@ TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "apply_effect",
+        "description": (
+            "Apply a status effect (hex, buff, debuff) to a character. Modifiers are "
+            "applied automatically: 'check' to its ability checks, 'attack' to its "
+            "attack rolls, 'defense' to its defense. Pass a 'hex' key to use a "
+            "ruleset-defined effect, or 'mods' to set them explicitly."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "name": {"type": "string", "description": "Effect name (defaults to the hex key)."},
+                "hex": {"type": "string", "description": "Ruleset hex key (see guidance)."},
+                "mods": {"type": "object", "additionalProperties": {"type": "integer"},
+                         "description": "Explicit modifiers, e.g. {\"attack\": -2}."},
+                "rounds": {"type": "integer", "description": "Duration in rounds (informational)."},
+            },
+            "required": ["character_id"],
+        },
+    },
+    {
+        "name": "clear_effect",
+        "description": "Remove a status effect from a character by name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string"},
+                "name": {"type": "string"},
+            },
+            "required": ["character_id", "name"],
+        },
+    },
+    {
         "name": "update_character",
         "description": "Change a character's hit points and conditions (damage, healing, status).",
         "input_schema": {
@@ -463,6 +496,44 @@ def _resolve_attack(ctx: GMContext, ip: dict[str, Any]) -> str:
     return json.dumps({**result.to_dict(), "target_hp": target.hp}, ensure_ascii=False)
 
 
+def _apply_effect(ctx: GMContext, ip: dict[str, Any]) -> str:
+    char = ctx.state.characters.get(ip["character_id"])
+    if char is None:
+        raise ValueError(f"no character {ip['character_id']!r}")
+    hex_key = ip.get("hex")
+    name = ip.get("name") or hex_key
+    if not name:
+        return "error: provide a name or hex"
+    mods = _as_int_map(ip.get("mods"))
+    if not mods and hex_key:
+        mods = {k: int(v) for k, v in ctx.ruleset.hex_catalog().get(hex_key, {}).items()}
+    rounds = ip.get("rounds")
+    effects = char.sheet.setdefault("effects", [])
+    effects[:] = [e for e in effects if e.get("name") != name]  # replace same-named
+    effects.append({"name": name, "mods": mods, "rounds": rounds})
+    if name not in char.conditions:
+        char.conditions.append(name)
+    mod_str = ", ".join(f"{k}{v:+d}" for k, v in mods.items()) or "効果なし"
+    ctx.log.append(Event(
+        type=EventType.SYSTEM,
+        text=f"{char.name} に効果「{name}」({mod_str})" + (f" {rounds}ラウンド" if rounds else ""),
+        actor=char.id, data={"effect": name, "mods": mods, "rounds": rounds},
+    ))
+    return f"applied {name} to {char.name}: {mod_str}"
+
+
+def _clear_effect(ctx: GMContext, ip: dict[str, Any]) -> str:
+    char = ctx.state.characters.get(ip["character_id"])
+    if char is None:
+        raise ValueError(f"no character {ip['character_id']!r}")
+    name = ip["name"]
+    char.sheet["effects"] = [e for e in char.sheet.get("effects", []) if e.get("name") != name]
+    if name in char.conditions:
+        char.conditions.remove(name)
+    ctx.log.append(Event(type=EventType.SYSTEM, text=f"{char.name} の効果「{name}」解除", actor=char.id))
+    return f"cleared {name} from {char.name}"
+
+
 def _update_character(ctx: GMContext, ip: dict[str, Any]) -> str:
     char = ctx.state.characters.get(ip["character_id"])
     if char is None:
@@ -567,6 +638,8 @@ _HANDLERS = {
     "spawn_npc": _spawn_npc,
     "spawn_monster": _spawn_monster,
     "resolve_attack": _resolve_attack,
+    "apply_effect": _apply_effect,
+    "clear_effect": _clear_effect,
     "update_character": _update_character,
     "roll_initiative": _roll_initiative,
     "set_turn_order": _set_turn_order,
