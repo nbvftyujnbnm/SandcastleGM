@@ -274,6 +274,21 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "rest",
+        "description": (
+            "Take a rest: restore HP and PP to maximum and clear status effects "
+            "and conditions (Sandcastle: a week's rest fully heals). Defaults to "
+            "all player characters; pass character_ids to choose, or all=true."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_ids": {"type": "array", "items": {"type": "string"}},
+                "all": {"type": "boolean", "description": "Include NPCs/enemies too."},
+            },
+        },
+    },
+    {
         "name": "update_notes",
         "description": "Record private GM plot notes / hidden state (never shown to players).",
         "input_schema": {
@@ -623,6 +638,30 @@ def _end_combat(ctx: GMContext, ip: dict[str, Any]) -> str:
     return "combat ended; initiative cleared"
 
 
+def _rest(ctx: GMContext, ip: dict[str, Any]) -> str:
+    ids = ip.get("character_ids")
+    if ids:
+        chars = [ctx.state.characters[c] for c in ids if c in ctx.state.characters]
+    elif ip.get("all"):
+        chars = list(ctx.state.characters.values())
+    else:
+        chars = ctx.state.player_characters()
+    rested = []
+    for char in chars:
+        char.hp = char.max_hp
+        if "max_pp" in char.sheet:
+            char.sheet["pp"] = char.sheet["max_pp"]
+        char.conditions = []
+        char.sheet["effects"] = []
+        rested.append(char.name)
+    ctx.log.append(Event(
+        type=EventType.SYSTEM,
+        text=f"休息：{', '.join(rested) or '(対象なし)'} が全快し状態異常が解除された",
+        data={"rested": rested},
+    ))
+    return f"rested: {', '.join(rested) or 'nobody'} (HP/PP restored, effects cleared)"
+
+
 def _update_notes(ctx: GMContext, ip: dict[str, Any]) -> str:
     ctx.state.notes[ip["key"]] = ip["value"]
     return f"note recorded: {ip['key']}"
@@ -645,5 +684,6 @@ _HANDLERS = {
     "set_turn_order": _set_turn_order,
     "advance_turn": _advance_turn,
     "end_combat": _end_combat,
+    "rest": _rest,
     "update_notes": _update_notes,
 }
