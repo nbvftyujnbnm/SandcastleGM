@@ -144,6 +144,17 @@ MONSTERS: dict[str, dict] = {
     },
 }
 
+# Armor (防具) table. ``bonus`` adds to defense; ``dex_penalty`` is the heavy-armor
+# penalty to DEX-based defense (and 赤青 resistance) — chainmail's 敏−1. A shield
+# adds a separate flat bonus.
+ARMOR: dict[str, dict] = {
+    "なし": {"bonus": 0, "dex_penalty": 0, "mass": 0.0},
+    "革鎧": {"bonus": 1, "dex_penalty": 0, "mass": 4.5},
+    "小札鎧": {"bonus": 2, "dex_penalty": 0, "mass": 20.0},
+    "鎖帷子": {"bonus": 3, "dex_penalty": -1, "mass": 25.0},
+}
+SHIELD_BONUS = 1
+
 # Energy damage colours and the ability that resists each pair.
 ENERGY_RESISTANCE: dict[str, str] = {
     "赤青": "DEX",  # fire / cold

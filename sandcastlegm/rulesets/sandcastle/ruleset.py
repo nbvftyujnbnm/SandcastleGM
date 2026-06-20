@@ -71,6 +71,16 @@ class SandcastleRuleset(Ruleset):
 
         bab = -(-level // 2)  # 基礎攻撃ボーナス = レベルの半分（切り上げ）
 
+        # 防御力 = 10 + 敏捷 + db(防御ボーナス) + 防具 + 盾。
+        # db: ハリアーはレベルの半分（切り上げ）、他は 0。
+        db = (-(-level // 2)) if combat_style == "ハリアー" else 0
+        armor_key = kwargs.get("armor", "なし")
+        armor = data.ARMOR.get(armor_key, data.ARMOR["なし"])
+        shield = bool(kwargs.get("shield", False))
+        shield_bonus = data.SHIELD_BONUS if shield else 0
+        dex = abilities.get("DEX", 0)
+        defense = 10 + dex + db + armor["bonus"] + shield_bonus + armor["dex_penalty"]
+
         sheet = {
             "level": level,
             "subspecies": subspecies,
@@ -78,6 +88,10 @@ class SandcastleRuleset(Ruleset):
             "abilities": abilities,
             "skills": skills,
             "bab": bab,
+            "db": db,
+            "armor": armor_key,
+            "shield": shield,
+            "defense": defense,
             "xp": 0,
         }
         return Character(

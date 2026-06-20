@@ -239,7 +239,8 @@ def cmd_play(args: argparse.Namespace) -> int:
 def _show_sheet(pc) -> None:
     s = pc.sheet
     print(f"  {pc.name} — {s.get('subspecies', '')} {s.get('combat_style', '')} L{s.get('level', '?')}")
-    print(f"  HP {pc.hp}/{pc.max_hp}  bab {s.get('bab', 0)}")
+    armor = s.get("armor", "なし") + ("＋盾" if s.get("shield") else "")
+    print(f"  HP {pc.hp}/{pc.max_hp}  bab {s.get('bab', 0)}  防御 {s.get('defense', '-')} ({armor})")
     print("  Abilities: " + "  ".join(f"{k}{v:+d}" for k, v in s.get("abilities", {}).items()))
     if s.get("skills"):
         print("  Skills: " + "、".join(s["skills"]))
