@@ -31,6 +31,10 @@ try:
 except ImportError:  # pragma: no cover - server extra not installed
     WebSocket = WebSocketDisconnect = None  # type: ignore[assignment,misc]
 
+# Tools a connected client may invoke directly over the WebSocket (no LLM) for
+# hands-on board control like click-to-move. Kept to safe board operations.
+BOARD_TOOLS = {"move_token", "place_token"}
+
 
 @dataclass
 class Room:
@@ -263,6 +267,10 @@ def create_app(manager: SessionManager | None = None) -> Any:
                     await run_in_threadpool(
                         room.gm.turn, msg.get("text", ""), msg.get("actor_id")
                     )
+                elif msg.get("type") == "tool" and msg.get("name") in BOARD_TOOLS:
+                    # Direct board manipulation (e.g. click-to-move), no LLM.
+                    from sandcastlegm.gm.tools import execute_tool
+                    execute_tool(room.gm.ctx, msg["name"], dict(msg.get("input") or {}))
         except WebSocketDisconnect:
             pass
         finally:
