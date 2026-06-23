@@ -26,6 +26,8 @@ from sandcastlegm.core.state import (
     Scene,
     Token,
     TokenKind,
+    chebyshev,
+    manhattan,
 )
 from sandcastlegm.rulesets.base import CheckRequest, Ruleset
 
@@ -105,6 +107,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                     "description": "Wall cells as [x, y] pairs.",
                     "items": {"type": "array", "items": {"type": "integer"}},
                 },
+                "cell_size_m": {"type": "number", "description": "Metres per cell (Sandcastle: 2)."},
             },
             "required": ["name", "width", "height"],
         },
@@ -128,13 +131,19 @@ TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "move_token",
-        "description": "Move a token to a new cell on the active map.",
+        "description": (
+            "Move a token to a cell on the active map. Validates bounds, walls and "
+            "occupancy, and enforces the character's movement allowance "
+            "(metres = cells × cell size; diagonals cost double). Pass force=true to "
+            "override (e.g. teleport, forced movement)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "token_id": {"type": "string"},
                 "x": {"type": "integer"},
                 "y": {"type": "integer"},
+                "force": {"type": "boolean", "description": "Ignore allowance/walls/occupancy."},
             },
             "required": ["token_id", "x", "y"],
         },
@@ -188,6 +197,9 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "att": {"type": "integer", "description": "Attack bonus, if not using a named attack."},
                 "damage": {"type": "string", "description": "Damage dice, e.g. '1d6+2'."},
                 "modifier": {"type": "integer", "description": "Situational to-hit modifier."},
+                "reach": {"type": "string", "description": "近接 (melee, needs adjacency) or 遠隔 (ranged)."},
+                "range_m": {"type": "number", "description": "Ranged weapon range in metres (default 20)."},
+                "ignore_range": {"type": "boolean", "description": "Skip the map range/reach check."},
             },
             "required": ["target_id"],
         },
@@ -404,6 +416,8 @@ def _set_scene(ctx: GMContext, ip: dict[str, Any]) -> str:
 
 def _create_map(ctx: GMContext, ip: dict[str, Any]) -> str:
     grid = MapGrid(name=ip["name"], width=int(ip["width"]), height=int(ip["height"]))
+    if ip.get("cell_size_m"):
+        grid.cell_size_m = float(ip["cell_size_m"])
     for cell in _as_pairs(ip.get("walls")):
         x, y = int(cell[0]), int(cell[1])
         grid.terrain[f"{x},{y}"] = "wall"
@@ -439,9 +453,36 @@ def _place_token(ctx: GMContext, ip: dict[str, Any]) -> str:
 
 def _move_token(ctx: GMContext, ip: dict[str, Any]) -> str:
     grid = _active_map(ctx)
-    token = grid.move_token(ip["token_id"], int(ip["x"]), int(ip["y"]))
-    ctx.log.append(Event(type=EventType.MAP, text=f"{token.name} moves to ({ip['x']},{ip['y']})", data=token.to_dict()))
-    return f"token moved: {token.id} -> ({ip['x']},{ip['y']})"
+    token = grid.tokens.get(ip["token_id"])
+    if token is None:
+        raise ValueError(f"no token {ip['token_id']!r}")
+    x, y = int(ip["x"]), int(ip["y"])
+    force = bool(ip.get("force", False))
+
+    if not grid.in_bounds(x, y):
+        return f"範囲外: ({x},{y}) はマップ外（{grid.width}x{grid.height}）"
+    if grid.is_wall(x, y) and not force:
+        return f"移動不可: ({x},{y}) は壁（force=trueで無視）"
+    occ = grid.occupant(x, y, exclude=token.id)
+    if occ is not None and not force:
+        return f"移動不可: ({x},{y}) は {occ.name} が占有中（force=trueで無視）"
+
+    cost_cells = manhattan(token.position, Position(x, y))
+    metres = cost_cells * grid.cell_size_m
+    char = ctx.state.characters.get(token.character_id) if token.character_id else None
+    move_m = char.sheet.get("move_m") if char else None
+    if move_m is not None and metres > move_m and not force:
+        return (f"移動力超過: {token.name} の移動 {metres:g}m > 移動力 {move_m}m "
+                f"（{cost_cells}マス, force=trueで強制）")
+
+    grid.move_token(token.id, x, y)
+    note = f" / 移動力 {move_m}m" if move_m is not None else ""
+    ctx.log.append(Event(
+        type=EventType.MAP,
+        text=f"{token.name} 移動 → ({x},{y})  {metres:g}m（{cost_cells}マス）{note}",
+        data=token.to_dict(),
+    ))
+    return f"moved {token.name} to ({x},{y}): {metres:g}m / {cost_cells} cells"
 
 
 def _spawn_npc(ctx: GMContext, ip: dict[str, Any]) -> str:
@@ -482,7 +523,49 @@ def _spawn_monster(ctx: GMContext, ip: dict[str, Any]) -> str:
     return f"spawned {count}x {catalog[key]}: {ids}"
 
 
+def _attack_reach(ctx: GMContext, ip: dict[str, Any]) -> str:
+    """Determine reach ('近接'/'遠隔') from the input or the named attack's sheet."""
+    if ip.get("reach"):
+        return str(ip["reach"])
+    attacker = ctx.state.characters.get(ip.get("attacker_id")) if ip.get("attacker_id") else None
+    name = ip.get("attack_name")
+    if attacker and name:
+        for atk in attacker.sheet.get("attacks", []):
+            if atk.get("name") == name:
+                return str(atk.get("reach", "近接"))
+    return "近接"
+
+
+def _range_block(ctx: GMContext, ip: dict[str, Any]) -> str | None:
+    """If both combatants are on the active map and out of range, return a message;
+    otherwise None (proceed). Skipped when ignore_range is set or either isn't placed."""
+    if ip.get("ignore_range"):
+        return None
+    grid = ctx.state.active_map
+    if grid is None:
+        return None
+    at = grid.token_for_character(ip.get("attacker_id"))
+    tt = grid.token_for_character(ip.get("target_id"))
+    if at is None or tt is None:
+        return None
+    cells = chebyshev(at.position, tt.position)
+    metres = cells * grid.cell_size_m
+    reach = _attack_reach(ctx, ip)
+    if "遠隔" in reach:
+        range_m = float(ip.get("range_m", 20) or 20)
+        if metres > range_m:
+            return f"範囲外: 遠隔攻撃の射程 {range_m:g}m を超過（距離 {metres:g}m / {cells}マス）"
+    else:  # melee
+        if cells > 1:
+            return f"範囲外: 近接攻撃は隣接が必要（距離 {cells}マス / {metres:g}m）"
+    return None
+
+
 def _resolve_attack(ctx: GMContext, ip: dict[str, Any]) -> str:
+    blocked = _range_block(ctx, ip)
+    if blocked is not None:
+        ctx.log.append(Event(type=EventType.ROLL, text=blocked, actor=ip.get("attacker_id")))
+        return blocked
     result = ctx.ruleset.resolve_attack(
         ctx.state,
         ip.get("attacker_id"),

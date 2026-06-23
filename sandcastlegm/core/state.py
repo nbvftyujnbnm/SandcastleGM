@@ -46,6 +46,17 @@ class Position:
         return cls(x=int(d["x"]), y=int(d["y"]))
 
 
+def chebyshev(a: "Position", b: "Position") -> int:
+    """Cells apart counting a diagonal as 1 — used for reach/range (adjacency)."""
+    return max(abs(a.x - b.x), abs(a.y - b.y))
+
+
+def manhattan(a: "Position", b: "Position") -> int:
+    """Movement cost in cells with Sandcastle's diagonal-costs-2 rule
+    (a diagonal step covers one cell on each axis, so cost = |dx| + |dy|)."""
+    return abs(a.x - b.x) + abs(a.y - b.y)
+
+
 @dataclass
 class Token:
     """A piece on the map: a character, a monster, a door, a marker."""
@@ -108,6 +119,25 @@ class MapGrid:
 
     def remove_token(self, token_id: str) -> None:
         self.tokens.pop(token_id, None)
+
+    def token_for_character(self, character_id: str | None) -> "Token | None":
+        if not character_id:
+            return None
+        return next((t for t in self.tokens.values() if t.character_id == character_id), None)
+
+    def occupant(self, x: int, y: int, exclude: str | None = None) -> "Token | None":
+        """A visible token standing on a cell (other than ``exclude``)."""
+        return next(
+            (t for t in self.tokens.values()
+             if t.id != exclude and not t.hidden and t.position.x == x and t.position.y == y),
+            None,
+        )
+
+    def in_bounds(self, x: int, y: int) -> bool:
+        return 0 <= x < self.width and 0 <= y < self.height
+
+    def is_wall(self, x: int, y: int) -> bool:
+        return self.terrain.get(f"{x},{y}") == "wall"
 
     def render_ascii(self, reveal_hidden: bool = False) -> str:
         """A plain-text board, handy for CLI play and for showing the LLM the map."""

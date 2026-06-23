@@ -23,6 +23,8 @@ from sandcastlegm.core.state import (
     Token,
     TokenKind,
     TurnOrder,
+    chebyshev,
+    manhattan,
 )
 
 __all__ = [
@@ -46,4 +48,6 @@ __all__ = [
     "Token",
     "TokenKind",
     "TurnOrder",
+    "chebyshev",
+    "manhattan",
 ]
