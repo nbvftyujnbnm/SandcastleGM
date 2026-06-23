@@ -135,7 +135,8 @@ TOOL_SPECS: list[dict[str, Any]] = [
             "Move a token to a cell on the active map. Validates bounds, walls and "
             "occupancy, and enforces the character's movement allowance "
             "(metres = cells × cell size; diagonals cost double). Pass force=true to "
-            "override (e.g. teleport, forced movement)."
+            "override (e.g. teleport, forced movement). Leaving an adjacent foe's "
+            "reach reports an opportunity attack for the GM to resolve."
         ),
         "input_schema": {
             "type": "object",
@@ -475,14 +476,60 @@ def _move_token(ctx: GMContext, ip: dict[str, Any]) -> str:
         return (f"移動力超過: {token.name} の移動 {metres:g}m > 移動力 {move_m}m "
                 f"（{cost_cells}マス, force=trueで強制）")
 
+    old = Position(token.position.x, token.position.y)
     grid.move_token(token.id, x, y)
+
+    # Opportunity attacks: foes adjacent before the move but not after get a
+    # chance to strike (the GM resolves them with resolve_attack).
+    provokers = _opportunity_provokers(ctx, grid, token, old, token.position)
     note = f" / 移動力 {move_m}m" if move_m is not None else ""
     ctx.log.append(Event(
         type=EventType.MAP,
         text=f"{token.name} 移動 → ({x},{y})  {metres:g}m（{cost_cells}マス）{note}",
         data=token.to_dict(),
     ))
-    return f"moved {token.name} to ({x},{y}): {metres:g}m / {cost_cells} cells"
+    oa = ""
+    if provokers:
+        names = "、".join(p.name for p in provokers)
+        ctx.log.append(Event(
+            type=EventType.TURN,
+            text=f"機会攻撃の機会: {names} が {token.name} に一撃を狙える（resolve_attackで解決）",
+            data={"mover": token.id, "provokers": [p.id for p in provokers]},
+        ))
+        oa = f"; opportunity attack from: {names}"
+    return f"moved {token.name} to ({x},{y}): {metres:g}m / {cost_cells} cells{oa}"
+
+
+def _token_side(ctx: GMContext, token: Token) -> str | None:
+    """'pc' / 'enemy' for combatants, or None for objects/markers/unknown."""
+    char = ctx.state.characters.get(token.character_id) if token.character_id else None
+    if char is not None:
+        return "pc" if char.is_pc else "enemy"
+    if token.kind == TokenKind.PC:
+        return "pc"
+    if token.kind in (TokenKind.ENEMY, TokenKind.NPC):
+        return "enemy"
+    return None
+
+
+def _opportunity_provokers(ctx: GMContext, grid, token, old, new) -> list:
+    """Foes adjacent at ``old`` but not at ``new`` (and still up) — they provoke."""
+    mover_side = _token_side(ctx, token)
+    if mover_side is None:
+        return []
+    out = []
+    for other in grid.tokens.values():
+        if other.id == token.id or other.hidden:
+            continue
+        side = _token_side(ctx, other)
+        if side is None or side == mover_side:
+            continue
+        char = ctx.state.characters.get(other.character_id) if other.character_id else None
+        if char is not None and char.hp <= 0:
+            continue  # downed foes don't strike
+        if chebyshev(other.position, old) <= 1 and chebyshev(other.position, new) > 1:
+            out.append(other)
+    return out
 
 
 def _spawn_npc(ctx: GMContext, ip: dict[str, Any]) -> str:
