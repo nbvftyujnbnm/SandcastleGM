@@ -112,6 +112,8 @@ WATCH_HTML = """<!doctype html>
          align-items:center; justify-content:center; font-size:11px; font-weight:bold;
          color:#fff; cursor:default; }
   .tok.downed { opacity:.4; }
+  .tok.sel { outline:2px solid #ffd479; outline-offset:1px; }
+  .cell { cursor:pointer; }
   form { display:flex; gap:8px; padding:10px; border-top:1px solid #2c313c; background:#1b1e25; }
   form select, form input { padding:8px; background:#0e1014; color:#e6e6e6;
             border:1px solid #2c313c; border-radius:6px; }
@@ -194,19 +196,33 @@ function renderBoard(grid) {
   el.innerHTML = '<div class="board" style="grid-template-columns:repeat(' +
     grid.width + ',18px)">' + cells.join('') + '</div>';
   const board = el.querySelector('.board');
+  // Click an empty cell to move the selected token there.
+  Array.from(board.children).forEach((cell, i) => {
+    cell.onclick = () => {
+      if (!selectedToken) return;
+      const x = i % grid.width, y = Math.floor(i / grid.width);
+      sendTool('move_token', {token_id: selectedToken, x: x, y: y});
+      selectedToken = null;
+    };
+  });
   (grid.tokens || []).forEach(t => {
     const cell = board.children[t.y * grid.width + t.x];
     if (!cell) return;
     const tok = document.createElement('div');
-    tok.className = 'tok' + (t.downed ? ' downed' : '');
+    tok.className = 'tok' + (t.downed ? ' downed' : '') + (t.id === selectedToken ? ' sel' : '');
     tok.style.background = t.color || '#888';
     tok.textContent = (t.glyph || t.name || '?').slice(0, 1);
     const hp = (t.hp != null) ? ' ' + t.hp + '/' + t.max_hp : '';
-    tok.title = (t.name || '') + hp + (t.downed ? ' (戦闘不能)' : '');
+    tok.title = (t.name || '') + hp + (t.downed ? ' (戦闘不能)' : '') + ' — クリックで選択→移動';
+    tok.onclick = (ev) => { ev.stopPropagation(); selectedToken = (selectedToken === t.id ? null : t.id); refreshState(); };
     cell.appendChild(tok);
   });
 }
 
+let selectedToken = null;
+function sendTool(name, input) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({type: 'tool', name: name, input: input}));
+}
 let ws;
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';

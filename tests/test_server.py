@@ -128,6 +128,44 @@ def test_save_and_load_session(tmp_path, monkeypatch):
     assert client.post("/sessions/load", json={}).status_code == 400
 
 
+def test_websocket_tool_move_token():
+    from sandcastlegm.gm.tools import GMContext, execute_tool
+
+    mgr = SessionManager()
+    client = TestClient(create_app(mgr))
+    sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
+    room = mgr.get(sid)
+    ctx = GMContext(ruleset=room.gm.ruleset, state=room.state, log=room.log)
+    execute_tool(ctx, "set_scene", {"title": "床"})
+    execute_tool(ctx, "create_map", {"name": "床", "width": 8, "height": 8, "cell_size_m": 2})
+    execute_tool(ctx, "place_token", {"name": "駒", "x": 0, "y": 0, "glyph": "@"})
+    tok_id = next(iter(room.state.active_map.tokens))
+
+    with client.websocket_connect(f"/sessions/{sid}/ws") as ws:
+        ws.receive_json()  # backlog
+        ws.send_json({"type": "tool", "name": "move_token", "input": {"token_id": tok_id, "x": 2, "y": 1, "force": True}})
+        ev = ws.receive_json()["event"]
+        assert ev["type"] == "map"
+    assert room.state.active_map.tokens[tok_id].position.x == 2
+
+    # A non-whitelisted tool over the WS is ignored (no spawn).
+    before = len(room.state.characters)
+    with client.websocket_connect(f"/sessions/{sid}/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "tool", "name": "spawn_monster", "input": {"key": "demon"}})
+        # nothing should be broadcast for the ignored tool; send a valid move to get an event
+        ws.send_json({"type": "tool", "name": "move_token", "input": {"token_id": tok_id, "x": 3, "y": 1, "force": True}})
+        assert ws.receive_json()["event"]["type"] == "map"
+    assert len(room.state.characters) == before  # demon was not spawned
+
+
+def test_watch_page_has_click_move():
+    client = make_client()
+    sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
+    page = client.get(f"/watch/{sid}").text
+    assert "sendTool" in page and "selectedToken" in page
+
+
 def test_vtt_export_endpoints():
     client = make_client()
     sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
