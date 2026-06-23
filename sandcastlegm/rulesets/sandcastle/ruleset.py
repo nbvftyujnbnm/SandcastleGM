@@ -95,6 +95,7 @@ class SandcastleRuleset(Ruleset):
             "defense": defense,
             "pp": max_pp,
             "max_pp": max_pp,
+            "move_m": 10,  # 一般的な移動力 10 m（=5マス）
             "xp": 0,
         }
         return Character(
@@ -169,6 +170,9 @@ class SandcastleRuleset(Ruleset):
     def create_monster(self, key: str, name: str | None = None) -> Character:
         m = data.MONSTERS[key]  # KeyError if unknown
         level = int(m["level"])
+        # Parse the leading number out of e.g. "12 m" / "8 m" for the move value.
+        move_digits = "".join(ch for ch in str(m.get("move", "")).split("m")[0] if ch.isdigit())
+        move_m = int(move_digits) if move_digits else 10
         sheet = {
             "level": level,
             "abilities": dict(m["abilities"]),
@@ -177,6 +181,7 @@ class SandcastleRuleset(Ruleset):
             "defense": m.get("defense"),
             "pp": m.get("pp", 0),
             "move": m.get("move", ""),
+            "move_m": move_m,
             "resist": dict(m.get("resist", {})),
             "vulnerability": m.get("vulnerability"),
             "immune": m.get("immune"),
