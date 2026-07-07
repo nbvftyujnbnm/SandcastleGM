@@ -53,7 +53,8 @@ class SandcastleRuleset(Ruleset):
 
         Accepted kwargs: ``level`` (default 1), ``subspecies`` (default 人間),
         ``combat_style`` (default ストライカー), ``abilities`` (dict of modifiers),
-        ``skills`` (list of trained skill names), ``controller``.
+        ``skills`` (list of trained skill names), ``weapons`` (list of weapon
+        catalog names, becoming ready attacks on the sheet), ``controller``.
         """
         level = int(kwargs.get("level", 1))
         subspecies = kwargs.get("subspecies", "人間")
@@ -82,12 +83,33 @@ class SandcastleRuleset(Ruleset):
         dex = abilities.get("DEX", 0)
         defense = 10 + dex + db + armor["bonus"] + shield_bonus + armor["dex_penalty"]
 
+        # Equipped weapons become ready attacks on the sheet. Attack bonus is
+        # bab + STR for melee, bab + PER for ranged (知覚力 covers ranged
+        # attacks); melee adds STR to damage. Ranged weapons carry their
+        # range_m so the map range check is data-driven.
+        attacks = []
+        for wname in kwargs.get("weapons", []):
+            weapon = data.WEAPONS.get(wname)
+            if weapon is None:
+                continue
+            ranged = "遠隔" in str(weapon.get("reach", "近接"))
+            att = bab + abilities.get("PER" if ranged else "STR", 0)
+            dmg = str(weapon.get("damage", "1d6"))
+            str_mod = abilities.get("STR", 0)
+            if not ranged and str_mod:
+                dmg = f"{dmg}{str_mod:+d}"
+            entry = {"name": wname, "att": att, "reach": weapon.get("reach", "近接"), "damage": dmg}
+            if weapon.get("range_m"):
+                entry["range_m"] = weapon["range_m"]
+            attacks.append(entry)
+
         sheet = {
             "level": level,
             "subspecies": subspecies,
             "combat_style": combat_style,
             "abilities": abilities,
             "skills": skills,
+            "attacks": attacks,
             "bab": bab,
             "db": db,
             "armor": armor_key,
@@ -163,6 +185,9 @@ class SandcastleRuleset(Ruleset):
     def hex_catalog(self) -> dict[str, dict[str, int]]:
         return {k: dict(v) for k, v in data.HEXES.items()}
 
+    def weapon_catalog(self) -> dict[str, dict[str, Any]]:
+        return {k: dict(v) for k, v in data.WEAPONS.items()}
+
     # --- bestiary -------------------------------------------------------------
     def monster_catalog(self) -> dict[str, str]:
         return {key: m["name"] for key, m in data.MONSTERS.items()}
@@ -218,6 +243,10 @@ class SandcastleRuleset(Ruleset):
             f"  - {label}: TN {tn}" for label, tn in data.TARGET_NUMBER_GUIDANCE.items()
         )
         bestiary = "、".join(f"{m['name']}({k}, Lv{m['level']})" for k, m in data.MONSTERS.items())
+        weapon_list = "、".join(
+            f"{k}({w['damage']}" + (f", 射程{w['range_m']}m" if w.get("range_m") else "") + ")"
+            for k, w in data.WEAPONS.items()
+        )
         return (
             "You are running Sandcastle, a light fantasy-adventure TRPG.\n"
             "Core mechanic: every uncertain action is an ability check — roll 3d6, "
@@ -231,6 +260,8 @@ class SandcastleRuleset(Ruleset):
             f"{tn_lines}\n\n"
             f"Bestiary (use spawn_monster with the key): {bestiary}. "
             "For creatures not listed, use spawn_npc.\n\n"
+            f"Weapons (use as attack_name in resolve_attack): {weapon_list}. "
+            "Ranged weapon ranges come from this data — do not guess them.\n\n"
             f"Status effects / hexes (use apply_effect with hex=): {'、'.join(data.HEXES)}. "
             "Their modifiers apply automatically to checks/attacks/defense.\n\n"
             "Tone: collaborative and fun, like cooperative make-believe. Failure "
