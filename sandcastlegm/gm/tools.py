@@ -206,6 +206,35 @@ TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "area_attack",
+        "description": (
+            "Resolve an area effect (breath, blast, explosion) centred on a map "
+            "cell: every combatant within the radius takes one shared damage "
+            "roll. Optionally each target rolls a save (ability check vs TN) to "
+            "halve or negate it. The attacker's own token is never caught; set "
+            "friendly_fire=false to also spare the attacker's side. Requires an "
+            "active map with placed tokens."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "attacker_id": {"type": "string", "description": "Character id of the attacker (excluded from targets)."},
+                "name": {"type": "string", "description": "Attack label, e.g. 火炎のブレス."},
+                "x": {"type": "integer", "description": "Centre cell x."},
+                "y": {"type": "integer", "description": "Centre cell y."},
+                "radius_m": {"type": "number", "description": "Radius in metres (default: one cell)."},
+                "damage": {"type": "string", "description": "Damage dice, e.g. '2d6'."},
+                "save_ability": {"type": "string", "description": "Ability for the save, e.g. DEX. Omit for no save."},
+                "save_tn": {"type": "integer", "description": "Save difficulty (default: ruleset default TN)."},
+                "on_save": {"type": "string", "enum": ["half", "none"],
+                            "description": "Damage on a successful save (default half, rounded down)."},
+                "friendly_fire": {"type": "boolean",
+                                  "description": "false to spare the attacker's own side (default true: hits everyone)."},
+            },
+            "required": ["x", "y", "damage"],
+        },
+    },
+    {
         "name": "apply_effect",
         "description": (
             "Apply a status effect (hex, buff, debuff) to a character. Modifiers are "
@@ -641,6 +670,70 @@ def _resolve_attack(ctx: GMContext, ip: dict[str, Any]) -> str:
     return json.dumps({**result.to_dict(), "target_hp": target.hp}, ensure_ascii=False)
 
 
+def _area_attack(ctx: GMContext, ip: dict[str, Any]) -> str:
+    grid = _active_map(ctx)
+    centre = Position(int(ip["x"]), int(ip["y"]))
+    radius_m = float(ip.get("radius_m") or grid.cell_size_m)
+    label = ip.get("name") or "範囲攻撃"
+    attacker_id = ip.get("attacker_id")
+    friendly_fire = bool(ip.get("friendly_fire", True))
+    attacker_token = grid.token_for_character(attacker_id) if attacker_id else None
+    attacker_side = _token_side(ctx, attacker_token) if attacker_token is not None else None
+
+    # One shared damage roll — every caught target suffers the same blast.
+    dmg_roll = ctx.ruleset.roller.roll(ip["damage"])
+    save_ability = ip.get("save_ability")
+    on_save = str(ip.get("on_save", "half"))
+
+    results: list[str] = []
+    data: list[dict[str, Any]] = []
+    for token in grid.tokens.values():
+        if attacker_token is not None and token.id == attacker_token.id:
+            continue  # the attacker stands at the safe heart of its own blast
+        char = ctx.state.characters.get(token.character_id) if token.character_id else None
+        if char is None or char.hp <= 0:
+            continue  # objects/markers and the already-downed are not re-rolled
+        if not friendly_fire and attacker_side is not None and _token_side(ctx, token) == attacker_side:
+            continue
+        if chebyshev(token.position, centre) * grid.cell_size_m > radius_m:
+            continue
+
+        dmg = dmg_roll.total
+        note = ""
+        if save_ability:
+            save = ctx.ruleset.resolve_check(ctx.state, CheckRequest(
+                actor_id=char.id, ability=str(save_ability),
+                target_number=ip.get("save_tn"),
+                description=f"{char.name} の{label}に対するセーヴ",
+            ))
+            if save.success:
+                dmg = 0 if on_save == "none" else dmg // 2
+                note = f"（セーヴ成功 {save.total}: {'無効' if dmg == 0 else '半減'}）"
+            else:
+                note = f"（セーヴ失敗 {save.total}）"
+        char.hp = max(0, char.hp - dmg)
+        downed = ""
+        if dmg > 0 and char.hp <= 0 and "戦闘不能" not in char.conditions:
+            char.conditions.append("戦闘不能")
+            downed = " 戦闘不能!"
+        results.append(f"{char.name} {dmg}点{note} → hp {char.hp}/{char.max_hp}{downed}")
+        data.append({"id": char.id, "damage": dmg, "hp": char.hp})
+
+    where = f"中心({centre.x},{centre.y}) 半径{radius_m:g}m"
+    if not results:
+        ctx.log.append(Event(type=EventType.ROLL, text=f"{label}（{where}）: 巻き込まれた者はいない",
+                             actor=attacker_id))
+        return f"{label}: no targets in area ({where})"
+    ctx.log.append(Event(
+        type=EventType.ROLL,
+        text=f"{label}（{where}, {dmg_roll.describe()}）: " + "、".join(results),
+        actor=attacker_id,
+        data={"centre": [centre.x, centre.y], "radius_m": radius_m,
+              "damage_roll": dmg_roll.total, "targets": data},
+    ))
+    return f"{label} ({where}, damage {dmg_roll.total}): " + "; ".join(results)
+
+
 def _apply_effect(ctx: GMContext, ip: dict[str, Any]) -> str:
     char = ctx.state.characters.get(ip["character_id"])
     if char is None:
@@ -807,6 +900,7 @@ _HANDLERS = {
     "spawn_npc": _spawn_npc,
     "spawn_monster": _spawn_monster,
     "resolve_attack": _resolve_attack,
+    "area_attack": _area_attack,
     "apply_effect": _apply_effect,
     "clear_effect": _clear_effect,
     "update_character": _update_character,
