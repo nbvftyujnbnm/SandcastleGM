@@ -166,6 +166,24 @@ def test_watch_page_has_click_move():
     assert "sendTool" in page and "selectedToken" in page
 
 
+def test_watch_page_has_pc_creation():
+    client = make_client()
+    sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]
+    page = client.get(f"/watch/{sid}").text
+    # The panel offers in-browser PC creation wired to the characters endpoint.
+    assert "createPc" in page and 'id="pcname"' in page
+    assert "ストライカー" in page and "ハリアー" in page
+
+    # The endpoint it posts to honours the form's fields.
+    body = {"name": "リオ", "subspecies": "エルフ", "combat_style": "ヘクサー", "level": 3}
+    cid = client.post(f"/sessions/{sid}/characters", json=body).json()["id"]
+    state = client.get(f"/sessions/{sid}").json()
+    sheet = state["characters"][cid]["sheet"]
+    assert sheet["subspecies"] == "エルフ"
+    assert sheet["combat_style"] == "ヘクサー"
+    assert sheet["level"] == 3
+
+
 def test_vtt_export_endpoints():
     client = make_client()
     sid = client.post("/sessions", json={"ruleset_id": "sandcastle"}).json()["id"]

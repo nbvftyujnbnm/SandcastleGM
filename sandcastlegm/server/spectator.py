@@ -120,12 +120,29 @@ WATCH_HTML = """<!doctype html>
   form input[type=text] { flex:1; } form button { background:#3a6ea5; color:#fff;
             border:0; border-radius:6px; padding:0 16px; cursor:pointer; }
   .active { color:#ffd479; font-weight:bold; }
+  #mkpc { margin:6px 0 2px; font-size:.9rem; }
+  #mkpc summary { cursor:pointer; color:#7fb2e6; }
+  #mkpc input, #mkpc select { width:100%; margin:4px 0; padding:6px; background:#0e1014;
+            color:#e6e6e6; border:1px solid #2c313c; border-radius:6px; }
+  #mkpc button { width:100%; margin-top:4px; padding:7px; background:#3a6ea5; color:#fff;
+            border:0; border-radius:6px; cursor:pointer; }
 </style></head><body>
 <header><b>🏰 SandcastleGM</b><span id="scene">—</span>
   <span class="rid">__ROOM_ID__</span><span id="status">接続中…</span></header>
 <main>
   <div id="panel">
     <h3>キャラクター</h3><div id="chars"></div>
+    <details id="mkpc"><summary>＋ PCを作成</summary>
+      <input id="pcname" placeholder="名前" autocomplete="off">
+      <select id="pcsub"><option>人間</option><option>ドワーフ</option>
+        <option>エルフ</option><option>オニ</option></select>
+      <select id="pcstyle"><option>ストライカー</option><option>エネルガー</option>
+        <option>ハリアー</option><option>ヘクサー</option></select>
+      <select id="pclv"><option value="1">レベル1</option><option value="2">レベル2</option>
+        <option value="3">レベル3</option><option value="4">レベル4</option>
+        <option value="5">レベル5</option></select>
+      <button type="button" onclick="createPc()">この内容で作成</button>
+    </details>
     <h3>イニシアチブ</h3><div id="init">—</div>
     <h3>マップ</h3><div id="map">（なし）</div>
   </div>
@@ -217,6 +234,22 @@ function renderBoard(grid) {
     tok.onclick = (ev) => { ev.stopPropagation(); selectedToken = (selectedToken === t.id ? null : t.id); refreshState(); };
     cell.appendChild(tok);
   });
+}
+
+async function createPc() {
+  const name = document.getElementById('pcname').value.trim();
+  if (!name) return;
+  const r = await fetch('/sessions/' + ROOM + '/characters', {method:'POST',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({name: name,
+      subspecies: document.getElementById('pcsub').value,
+      combat_style: document.getElementById('pcstyle').value,
+      level: parseInt(document.getElementById('pclv').value, 10)})});
+  const j = await r.json();
+  document.getElementById('pcname').value = '';
+  document.getElementById('mkpc').open = false;
+  await refreshState();
+  if (j.id) document.getElementById('actor').value = j.id;  // act as the new PC
 }
 
 let selectedToken = null;
