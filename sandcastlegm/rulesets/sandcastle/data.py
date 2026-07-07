@@ -42,6 +42,22 @@ SKILLS: dict[str, str] = {
 }
 SKILL_KEYS: list[str] = list(SKILLS.keys())
 
+# Weapons (武器). Damage dice feed the attack tools directly; ranged weapons
+# carry their range in metres so the map range check is data-driven rather than
+# a per-call guess. Values here are starting points for the scaffold; tune
+# against the equipment table in the rulebook for a campaign.
+WEAPONS: dict[str, dict] = {
+    "短剣": {"reach": "近接", "damage": "1d3", "note": "Dagger: light, concealable."},
+    "剣": {"reach": "近接", "damage": "1d6", "note": "Sword: the standard sidearm."},
+    "大剣": {"reach": "近接", "damage": "2d6", "note": "Greatsword: two-handed."},
+    "槍": {"reach": "近接", "damage": "1d6+1", "note": "Spear: sturdy reach weapon."},
+    "棍棒": {"reach": "近接", "damage": "1d3+1", "note": "Club: simple and cheap."},
+    "弓": {"reach": "遠隔", "damage": "1d6", "range_m": 30, "note": "Bow."},
+    "クロスボウ": {"reach": "遠隔", "damage": "1d6+1", "range_m": 40, "note": "Crossbow: slow to reload."},
+    "スリング": {"reach": "遠隔", "damage": "1d3", "range_m": 20, "note": "Sling."},
+    "投げナイフ": {"reach": "遠隔", "damage": "1d3", "range_m": 10, "note": "Throwing knife."},
+}
+
 # Subspecies and how many starting skills each gets (humans get one extra).
 SUBSPECIES: dict[str, dict] = {
     "人間": {"skills": 3, "note": "Humans: no ability modifiers, an extra skill."},
@@ -159,7 +175,7 @@ MONSTERS: dict[str, dict] = {
         "resist": {"赤青": 5, "緑黄": 5, "橙紫": 4, "ヘックス": 4},
         "attacks": [
             {"name": "噛みつき", "action": "主/割", "att": 8, "reach": "近接", "damage": "2d6+5", "dtype": "通常"},
-            {"name": "炎のブレス", "action": "主", "att": 8, "reach": "遠隔", "damage": "2d6", "dtype": "赤エネルギー"},
+            {"name": "炎のブレス", "action": "主", "att": 8, "reach": "遠隔", "range_m": 20, "damage": "2d6", "dtype": "赤エネルギー"},
         ],
         "note": "複数の頭が独立して行動でき、1ターンに複数の攻撃が可能。",
     },

@@ -229,6 +229,12 @@ class Ruleset(ABC):
                     att = atk.get("att") if att is None else att
                     damage = damage or atk.get("damage")
                     break
+            else:
+                # Not on the sheet — a weapon named straight from the ruleset's
+                # catalog still gets its listed damage dice.
+                weapon = self.weapon_catalog().get(attack_name)
+                if weapon:
+                    damage = damage or weapon.get("damage")
         dtype = None
         for atk in a_sheet.get("attacks", []):
             if atk.get("name") == attack_name:
@@ -275,6 +281,15 @@ class Ruleset(ABC):
 
     def hex_catalog(self) -> dict[str, dict[str, int]]:
         """Named status effects -> default modifier dict. Empty by default."""
+        return {}
+
+    def weapon_catalog(self) -> dict[str, dict[str, Any]]:
+        """Named weapons -> stats (``reach``, ``damage``, ``range_m`` for ranged).
+
+        The map range check reads ``range_m`` from here (via the attacker's
+        sheet or by attack name), so ranged weapon ranges are data, not
+        per-call guesses. Empty by default.
+        """
         return {}
 
     # --- bestiary (optional; systems without one inherit the empty default) ---

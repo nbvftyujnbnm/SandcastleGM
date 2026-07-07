@@ -199,7 +199,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "damage": {"type": "string", "description": "Damage dice, e.g. '1d6+2'."},
                 "modifier": {"type": "integer", "description": "Situational to-hit modifier."},
                 "reach": {"type": "string", "description": "近接 (melee, needs adjacency) or 遠隔 (ranged)."},
-                "range_m": {"type": "number", "description": "Ranged weapon range in metres (default 20)."},
+                "range_m": {"type": "number", "description": "Ranged range in metres (default: the weapon's data, else 20)."},
                 "ignore_range": {"type": "boolean", "description": "Skip the map range/reach check."},
             },
             "required": ["target_id"],
@@ -599,17 +599,37 @@ def _spawn_monster(ctx: GMContext, ip: dict[str, Any]) -> str:
     return f"spawned {count}x {catalog[key]}: {ids}"
 
 
-def _attack_reach(ctx: GMContext, ip: dict[str, Any]) -> str:
-    """Determine reach ('近接'/'遠隔') from the input or the named attack's sheet."""
-    if ip.get("reach"):
-        return str(ip["reach"])
-    attacker = ctx.state.characters.get(ip.get("attacker_id")) if ip.get("attacker_id") else None
+def _named_attack(ctx: GMContext, ip: dict[str, Any]) -> dict[str, Any] | None:
+    """The named attack's stats: from the attacker's sheet, else the ruleset's
+    weapon catalog (so a weapon named directly still carries its data)."""
     name = ip.get("attack_name")
-    if attacker and name:
+    if not name:
+        return None
+    attacker = ctx.state.characters.get(ip.get("attacker_id")) if ip.get("attacker_id") else None
+    if attacker:
         for atk in attacker.sheet.get("attacks", []):
             if atk.get("name") == name:
-                return str(atk.get("reach", "近接"))
-    return "近接"
+                return atk
+    return ctx.ruleset.weapon_catalog().get(name)
+
+
+def _attack_reach(ctx: GMContext, ip: dict[str, Any]) -> str:
+    """Determine reach ('近接'/'遠隔') from the input or the named attack's data."""
+    if ip.get("reach"):
+        return str(ip["reach"])
+    atk = _named_attack(ctx, ip)
+    return str(atk.get("reach", "近接")) if atk else "近接"
+
+
+def _attack_range_m(ctx: GMContext, ip: dict[str, Any]) -> float:
+    """Ranged attack range in metres: explicit arg, else the named attack's
+    data (sheet or weapon catalog), else 20."""
+    if ip.get("range_m"):
+        return float(ip["range_m"])
+    atk = _named_attack(ctx, ip)
+    if atk and atk.get("range_m"):
+        return float(atk["range_m"])
+    return 20.0
 
 
 def _range_block(ctx: GMContext, ip: dict[str, Any]) -> str | None:
@@ -628,7 +648,7 @@ def _range_block(ctx: GMContext, ip: dict[str, Any]) -> str | None:
     metres = cells * grid.cell_size_m
     reach = _attack_reach(ctx, ip)
     if "遠隔" in reach:
-        range_m = float(ip.get("range_m", 20) or 20)
+        range_m = _attack_range_m(ctx, ip)
         if metres > range_m:
             return f"範囲外: 遠隔攻撃の射程 {range_m:g}m を超過（距離 {metres:g}m / {cells}マス）"
     else:  # melee
